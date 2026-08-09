@@ -72,6 +72,25 @@ public class QdrantService : IQdrantService
     {
         var result = await _client.GetCollectionInfoAsync(collectionName);
 
+        var vectorsConfig = result.Config.Params.VectorsConfig;
+
+        ulong dimension = 0;
+        var distance = string.Empty;
+
+        switch (vectorsConfig.ConfigCase)
+        {
+            case VectorsConfig.ConfigOneofCase.Params:
+                dimension = vectorsConfig.Params.Size;
+                distance = vectorsConfig.Params.Distance.ToString();
+                break;
+
+            case VectorsConfig.ConfigOneofCase.ParamsMap:
+                var firstVector = vectorsConfig.ParamsMap.Map.FirstOrDefault().Value;
+                dimension = firstVector?.Size ?? 0;
+                distance = firstVector?.Distance.ToString() ?? string.Empty;
+                break;
+        }
+
         var collectionInfo = new CollectionInfoDto()
         {
             Status = result.Status.ToString(),
@@ -86,8 +105,8 @@ public class QdrantService : IQdrantService
             OnDisk = result.Config.HnswConfig.OnDisk,
             IndexingThreshold = result.Config.OptimizerConfig.IndexingThreshold,
             OnDiskPayload = result.Config.Params.OnDiskPayload,
-            Dimension = result.Config.Params.VectorsConfig.Params.Size,
-            Distance = result.Config.Params.VectorsConfig.Params.Distance.ToString(),
+            Dimension = dimension,
+            Distance = distance,
             WalCapacityMb = result.Config.WalConfig.WalCapacityMb,
         };
 
@@ -161,7 +180,7 @@ public class QdrantService : IQdrantService
         {
             var pointDto = createPointsDto.pointDtos[i];
 
-            var embedding = embeddings[0];
+            var embedding = embeddings[i];
 
             var point = new PointStruct();
 
@@ -390,7 +409,7 @@ public class QdrantService : IQdrantService
             }
             else
             {
-                throw new ArgumentException($"Formato de ID no válido: {id}");
+                throw new ArgumentException($"Invalid ID format: {id}");
             }
         }
 

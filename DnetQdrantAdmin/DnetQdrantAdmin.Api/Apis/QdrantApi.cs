@@ -6,6 +6,7 @@ using CsvHelper.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Qdrant.Client.Grpc;
 using System.Globalization;
+using System.Text.Json;
 
 namespace Dnet.QdrantAdmin.Api.Apis;
 
@@ -39,6 +40,30 @@ public static class QdrantApi
         })
       .WithName("ListCollections")
       .Produces<List<CollectionDto>>();
+
+        group.MapGet("/GetStats", async (
+                             IQdrantService qdrantService
+                             ) =>
+        {
+            var collections = await qdrantService.ListCollectionsAsync();
+
+            ulong pointsCount = 0;
+
+            foreach (var collection in collections)
+            {
+                var info = await qdrantService.GetCollectionInfoAsync(collection.Name);
+
+                pointsCount += info.PointsCount;
+            }
+
+            return new DashboardStatsDto
+            {
+                CollectionCount = collections.Count,
+                PointsCount = pointsCount
+            };
+        })
+      .WithName("GetStats")
+      .Produces<DashboardStatsDto>();
 
         group.MapPost("/DeleteCollection", async ([FromBody] string name,
                              IQdrantService qdrantService,
@@ -132,12 +157,15 @@ public static class QdrantApi
         {
             if (!request.HasFormContentType)
             {
-                var tt = request.HasFormContentType;
+                return Results.BadRequest("Multipart form data is required.");
             }
 
             long maxFileSize = 1024 * 1024 * 15;
 
-            var _qpoints = new List<QpointDto>();
+            var qpoints = new List<QpointDto>();
+            var errors = new List<string>();
+            var skippedCount = 0;
+            var unparsableRows = 0;
 
             var form = await request.ReadFormAsync();
             var file = form.Files["files"];
@@ -148,31 +176,72 @@ public static class QdrantApi
                 {
                     Delimiter = ",",
                     HasHeaderRecord = true,
+                    MissingFieldFound = null,
+                    BadDataFound = _ => unparsableRows++,
                 };
 
                 using (var stream = file.OpenReadStream())
                 using (var reader = new StreamReader(stream))
                 using (var csv = new CsvReader(reader, config))
                 {
-                    var items = csv.GetRecords<PointData>();
+                    var rowNumber = 1; // header row
 
-                    foreach (var item in items)
+                    try
                     {
-                        var pointData = new QpointDto()
+                        foreach (var item in csv.GetRecords<PointData>())
                         {
-                            Text = item.VectorData,
-                            PayloadString = item.Payload,
-                        };
+                            rowNumber++;
 
-                        _qpoints.Add(pointData);
+                            if (string.IsNullOrWhiteSpace(item.VectorData))
+                            {
+                                skippedCount++;
+                                errors.Add($"Row {rowNumber}: text is empty");
+                                continue;
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(item.Payload))
+                            {
+                                try
+                                {
+                                    using var jsonDoc = JsonDocument.Parse(item.Payload);
+                                }
+                                catch (Exception ex)
+                                {
+                                    skippedCount++;
+                                    errors.Add($"Row {rowNumber}: invalid payload JSON ({ex.Message})");
+                                    continue;
+                                }
+                            }
+
+                            qpoints.Add(new QpointDto()
+                            {
+                                Text = item.VectorData,
+                                PayloadString = item.Payload,
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        return Results.BadRequest($"Could not parse CSV file: {ex.Message}");
                     }
                 }
             }
 
-            return _qpoints;
+            if (unparsableRows > 0)
+            {
+                skippedCount += unparsableRows;
+                errors.Add($"{unparsableRows} row(s) skipped: could not be parsed as CSV");
+            }
+
+            return Results.Ok(new ImportPreviewDto
+            {
+                Points = qpoints,
+                SkippedCount = skippedCount,
+                Errors = errors
+            });
         })
        .WithName("GetImportQPointData")
-       .Produces<List<QpointDto>>();
+       .Produces<ImportPreviewDto>();
 
         return group;
     }

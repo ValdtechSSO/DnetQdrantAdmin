@@ -9,6 +9,8 @@ public interface IAdminService
 
     Task<List<CollectionDto>> ListCollections();
 
+    Task<DashboardStatsDto> GetStats();
+
     Task DeleteCollection(string name);
 
     Task<CollectionInfoDto> GetCollectionInfo(string text);
@@ -21,7 +23,7 @@ public interface IAdminService
 
     Task<UpdateResult> DeletePoint(DeletePointDto deletePointDto);
 
-    Task<List<QpointDto>> GetImportQPointData(MultipartFormDataContent content);
+    Task<ImportPreviewDto> GetImportQPointData(MultipartFormDataContent content);
 
     Task CreatePoints(CreatePointsDto createPointsDto);
 }

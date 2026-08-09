@@ -85,6 +85,8 @@ public static class LlmProviderApi
 
                 searchResultDto.Score = scoredPoint.Score;
 
+                searchResultDto.PointId = scoredPoint.Id.HasNum ? scoredPoint.Id.Num.ToString() : scoredPoint.Id.HasUuid ? scoredPoint.Id.Uuid : string.Empty;
+
                 searchResultDto.PayloadString = scoredPoint.Payload is not null ? qdrantService.MapFieldToJson(scoredPoint.Payload) : string.Empty;
 
                 if (scoredPoint.Payload != null)
@@ -98,6 +100,13 @@ public static class LlmProviderApi
                         {
                             case "text":
                                 searchResultDto.Text = value.StringValue;
+                                break;
+
+                            case "normalized_statement":
+                                if (string.IsNullOrEmpty(searchResultDto.Text))
+                                {
+                                    searchResultDto.Text = value.StringValue;
+                                }
                                 break;
 
                             default:

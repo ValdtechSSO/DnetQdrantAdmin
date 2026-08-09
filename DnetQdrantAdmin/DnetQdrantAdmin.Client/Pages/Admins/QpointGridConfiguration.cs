@@ -63,8 +63,8 @@ public class QpointGridConfiguration
                         },
                         new()
                         {
-                            ColumnId = 1,
-                            ColumnOrder = 1,
+                            ColumnId = 2,
+                            ColumnOrder = 2,
                             HeaderName = "PayloadString",
                             DataField = "PayloadString",
                             Width= width,

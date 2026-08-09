@@ -7,4 +7,6 @@ public class SearchResultDto
     public string? Text { get; set; }
 
     public string? PayloadString { get; set; }
+
+    public string? PointId { get; set; }
 }

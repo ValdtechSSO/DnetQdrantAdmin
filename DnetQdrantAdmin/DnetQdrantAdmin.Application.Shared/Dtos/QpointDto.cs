@@ -24,9 +24,9 @@ public class QpointDto
 
     public string? PayloadString { get; set; }
 
-    public bool HasNum { get; set;} = true;
+    public bool HasNum { get; set;} = false;
 
-    public bool HasUuid { get; set; } = false;
+    public bool HasUuid { get; set; } = true;
 
     public PointIdType PointIdType { get; set; }
 

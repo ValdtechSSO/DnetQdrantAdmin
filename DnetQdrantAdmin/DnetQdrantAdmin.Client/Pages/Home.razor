@@ -1,9 +1,56 @@
 ﻿@page "/"
-@using System.Text.Json
-@using System.Text.Json.Serialization
-@using Dnet.QdrantAdmin.Client.Infrastructure.Models
-@using Dnet.Blazor.Components.DatePicker
-@using Dnet.Blazor.Components.Form
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Pages.Admin
+
+@inject IAdminService AdminService
 
 <PageTitle>Home</PageTitle>
 
+<div class="container-fluid">
+    <div class="dnet-panel" style="margin: 20px;">
+        <div class="dnet-panel-header">
+            <div class="dsec-panel-content">
+                <span class="dsec-panel-content-title">Dashboard</span>
+                <span class="dsec-panel-content-desciption">Overview of your Qdrant instance</span>
+            </div>
+        </div>
+        <div class="dnet-panel-content" style="padding: 20px; display: flex; flex-wrap: wrap; gap: 20px;">
+            <div style="flex: 1; min-width: 200px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+                <div style="font-size: 2rem; font-weight: 600;">@_stats.CollectionCount</div>
+                <div style="font-size: .85rem; color: #6c757d;">Collections</div>
+            </div>
+            <div style="flex: 1; min-width: 200px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+                <div style="font-size: 2rem; font-weight: 600;">@_stats.PointsCount</div>
+                <div style="font-size: .85rem; color: #6c757d;">Points</div>
+            </div>
+        </div>
+        <div class="dnet-panel-content" style="padding: 0 20px 20px 20px;">
+            <div style="font-size: .85rem; color: #6c757d; margin-bottom: 10px;">Quick actions</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                <a class="btn" style="border: 1px solid #0d6efd; color: #0d6efd;" href="/collections">Collections</a>
+                <a class="btn" style="border: 1px solid #0d6efd; color: #0d6efd;" href="/points">Points</a>
+                <a class="btn" style="border: 1px solid #0d6efd; color: #0d6efd;" href="/search">Search</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+
+    [CascadingParameter]
+    public Error? Error { get; set; }
+
+    private DashboardStatsDto _stats { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _stats = await AdminService.GetStats();
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+}

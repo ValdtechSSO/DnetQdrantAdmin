@@ -9,7 +9,7 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents()
     .AddInteractiveWebAssemblyComponents();
 
-builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.Configuration["QDRANTADMIN_API_URL"]) });
+builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.Configuration["QDRANTADMIN_API_URL"] ?? "https://localhost:7248/") });
 
 builder.Services.AddBlazeOrbitalClient();
 

@@ -185,7 +185,10 @@
         {
             _collections = await GetCollections();
 
-            await _collectionBlGridReference.SetRowDataAsync(_collections);
+            if (_collectionBlGridReference is not null)
+            {
+                await _collectionBlGridReference.SetRowDataAsync(_collections);
+            }
 
             await InvokeAsync(StateHasChanged);
         }
@@ -283,7 +286,10 @@
 
                 _collections = await GetCollections();
 
-                await _collectionBlGridReference.SetRowDataAsync(_collections);
+                if (_collectionBlGridReference is not null)
+                {
+                    await _collectionBlGridReference.SetRowDataAsync(_collections);
+                }
 
                 await InvokeAsync(StateHasChanged);
             }
@@ -402,7 +408,10 @@
 
                 _collections = await GetCollections();
 
-                await _collectionBlGridReference.SetRowDataAsync(_collections);
+                if (_collectionBlGridReference is not null)
+                {
+                    await _collectionBlGridReference.SetRowDataAsync(_collections);
+                }
 
                 await InvokeAsync(StateHasChanged);
 
