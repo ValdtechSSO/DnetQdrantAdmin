@@ -15,6 +15,7 @@
 @using Dnet.Blazor.Components.AdminLayout.DesktopNavigation
 @using Dnet.Blazor.Components.Spinner
 @using Dnet.Blazor.Components.AdminLayout.Menu
+@using Dnet.QdrantAdmin.Client.Pages
 
 @inject IThemeMessageService<ThemeConfigData> ThemeMessageService
 
@@ -66,12 +67,14 @@
     </DesktopHeader>
     <DesktopContent>
         <DnetSpinner CanRun="true" BindToView="true" ShowMask="true" DebounceTime="250"></DnetSpinner>
-        @Body
+        <Error>
+            @Body
+        </Error>
     </DesktopContent>
     <DesktopFooter>
         <div style="height:100%; width:100%; display: flex; justify-content:space-between; align-items: center">
             <div style="display:flex; align-items: center; justify-content:start; padding-left: 20px;">
-                <span style="font-size:.75rem;">2024 © Datalnet</span>
+                <span style="font-size:.75rem;">@DateTime.Now.Year © Datalnet</span>
             </div>
             <div style="display:flex; align-items: center; justify-content:start; padding-right: 20px;">
                 <div class="widget">
@@ -114,7 +117,7 @@
     {
         AppName = "Dnet Qdrant admin";
         AppDescription = "";
-        AppVersion = "V.0.5.2";
+        AppVersion = "V.0.6.0";
         Title = "Ready to eat";
         UserName = "admin@datalnet.com";
         PersonName = "Adrian Mustelier";
@@ -186,7 +189,7 @@
                 HasImage = true
             },
             new NavigationMenu {
-                        MenuId = 11,
+                        MenuId = 12,
                         Link = "/collections",
                         ParentId = 0,
                         Text = "Collections",
@@ -200,7 +203,7 @@
                         HasImage = true
             },
             new NavigationMenu {
-                        MenuId = 11,
+                        MenuId = 13,
                         Link = "/points",
                         ParentId = 0,
                         Text = "Points",

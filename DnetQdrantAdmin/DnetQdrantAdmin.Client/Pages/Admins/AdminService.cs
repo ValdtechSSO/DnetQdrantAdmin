@@ -25,6 +25,11 @@ public class AdminService : IAdminService
         return await _httpClient.GetFromJsonAsync<List<CollectionDto>>($"api/Qdrants/ListCollections");
     }
 
+    public async Task<DashboardStatsDto> GetStats()
+    {
+        return await _httpClient.GetFromJsonAsync<DashboardStatsDto>($"api/Qdrants/GetStats");
+    }
+
     public async Task DeleteCollection(string name)
     {
         await _httpClient.PostAsJsonAsync($"api/Qdrants/DeleteCollection", name);
@@ -63,11 +68,11 @@ public class AdminService : IAdminService
         return await response.Content.ReadFromJsonAsync<UpdateResult>();
     }
 
-    public async Task<List<QpointDto>> GetImportQPointData(MultipartFormDataContent content)
+    public async Task<ImportPreviewDto> GetImportQPointData(MultipartFormDataContent content)
     {
         var response = await _httpClient.PostAsync($"api/Qdrants/GetImportQPointData", content);
 
-        return await response.Content.ReadFromJsonAsync<List<QpointDto>>();
+        return await response.Content.ReadFromJsonAsync<ImportPreviewDto>();
     }
 
     public async Task CreatePoints(CreatePointsDto createPointsDto)

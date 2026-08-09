@@ -20,8 +20,8 @@
     </div>
     <div class="dnet-panel-content">
         <EditForm EditContext="@_editContext">
-            <DnetInputCheckbox @bind-Value="_pointDto.HasUuid" DisplayName="On DiskPayload">
-                Use GUI as point Id
+            <DnetInputCheckbox @bind-Value="_pointDto.HasUuid" DisplayName="Use GUID as point Id">
+                Use GUID as point Id
             </DnetInputCheckbox>
             <DnetFormField Label="LLM Model" IsRequired="true">
                 <ChildContent>

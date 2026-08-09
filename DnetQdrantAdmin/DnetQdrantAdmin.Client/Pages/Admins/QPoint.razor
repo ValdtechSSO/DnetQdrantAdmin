@@ -8,6 +8,7 @@
 @using Dnet.QdrantAdmin.Client.Pages.Admin
 @using Dnet.QdrantAdmin.Client.Pages.TherapyNotes
 @using Dnet.QdrantAdmin.Client.SharedComponents
+@using Dnet.Blazor.Components.Button
 @using Dnet.Blazor.Components.Dialog.Infrastructure.Interfaces
 @using Dnet.Blazor.Components.Dialog.Infrastructure.Models
 @using Dnet.Blazor.Components.FloatingPanel.Infrastructure.Enums
@@ -93,6 +94,13 @@
                              OnRowClicked="OnRowClicked"
                              OnSelectionChanged="SelectionChanged">
                     </BlgGrid>
+                }
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin: 10px 0 0 0; padding: 10px; background: #f8f9fa; border: 1px solid #e2e2e2;">
+                <span style="font-size: .8rem;">Showing @_qpoints.Count of @_totalPoints points</span>
+                @if (_hasMore)
+                {
+                    <DnetButton OnClick="LoadMoreAsync" class="dnet-m-r-10" disabled="@_isLoading">Load more</DnetButton>
                 }
             </div>
         </div>
@@ -184,6 +192,16 @@
 
     private string _collectionName { get; set; } = string.Empty;
 
+    private const uint PageSize = 200;
+
+    private PointId? _scrollOffset;
+
+    private ulong _totalPoints;
+
+    private bool _hasMore;
+
+    private bool _isLoading;
+
     private EditContext? _editContext { get; set; }
 
     private ValidationMessageStore? messageStore { get; set; }
@@ -226,9 +244,7 @@
 
                 _collectionName = collection is not null ? collection.Name : string.Empty;
 
-                if (!string.IsNullOrEmpty(_collectionName)) _qpoints = await GetQpoints();
-
-                await _qpointBlGridReference.SetRowDataAsync(_qpoints);
+                await LoadFirstPageAsync();
             }
 
             await InvokeAsync(StateHasChanged);
@@ -244,12 +260,73 @@
         var scrollDto = new ScrollDto
             {
                 CollectionName = _collectionName,
-                Limit = 500
+                Limit = PageSize,
+                Offset = _scrollOffset
             };
 
         var result = await AdminService.ScrollPoints(scrollDto);
 
         return result;
+    }
+
+    private async Task LoadFirstPageAsync()
+    {
+        _scrollOffset = null;
+        _qpoints = new List<QpointDto>();
+        _hasMore = false;
+        _totalPoints = 0;
+
+        if (string.IsNullOrEmpty(_collectionName)) return;
+
+        _qpoints = await GetQpoints();
+
+        _scrollOffset = _qpoints.LastOrDefault()?.PointId;
+
+        _totalPoints = (await AdminService.GetCollectionInfo(_collectionName)).PointsCount;
+
+        _hasMore = (ulong)_qpoints.Count < _totalPoints;
+
+        if (_qpointBlGridReference is not null)
+        {
+            await _qpointBlGridReference.SetRowDataAsync(_qpoints);
+        }
+    }
+
+    private async Task LoadMoreAsync()
+    {
+        if (_isLoading || !_hasMore) return;
+
+        _isLoading = true;
+
+        try
+        {
+            var more = await GetQpoints();
+
+            var existingIds = _qpoints.Select(p => p.QpointId).ToHashSet();
+
+            foreach (var point in more)
+            {
+                if (point.QpointId is not null && existingIds.Add(point.QpointId))
+                {
+                    _qpoints.Add(point);
+                }
+            }
+
+            _scrollOffset = _qpoints.LastOrDefault()?.PointId;
+
+            _hasMore = (ulong)_qpoints.Count < _totalPoints;
+
+            if (_qpointBlGridReference is not null)
+            {
+                await _qpointBlGridReference.SetRowDataAsync(_qpoints);
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
     }
 
     private async Task<List<CollectionDto>> GetCollections()
@@ -265,9 +342,7 @@
 
         if (string.IsNullOrEmpty(_collectionName)) return;
 
-        _qpoints = await GetQpoints();
-
-        await _qpointBlGridReference.SetRowDataAsync(_qpoints);
+        await LoadFirstPageAsync();
 
         await InvokeAsync(StateHasChanged);
     }
@@ -394,9 +469,7 @@
 
                 ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Data saved successfully", "info"));
 
-                _qpoints = await GetQpoints();
-
-                await _qpointBlGridReference.SetRowDataAsync(_qpoints);
+                await LoadFirstPageAsync();
 
                 await InvokeAsync(StateHasChanged);
             }
@@ -438,7 +511,7 @@
         catch (HttpResponseException)
         {
             _overlayReference.Close += CloseEditFloatingPanel;
-            ToastService.Show(DnetToastConfig.Get(ToastType.Warning, "El usuario no existe, contactar al administrador", "Advertencia"));
+            ToastService.Show(DnetToastConfig.Get(ToastType.Warning, "The user does not exist, contact the administrator", "Warning"));
         }
 
     }
@@ -516,9 +589,7 @@
 
                 _selectedQpoint = new();
 
-                _qpoints = await GetQpoints();
-
-                await _qpointBlGridReference.SetRowDataAsync(_qpoints);
+                await LoadFirstPageAsync();
 
                 await InvokeAsync(StateHasChanged);
             };
@@ -587,9 +658,7 @@
 
                 ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Data saved successfully", "Information"));
 
-                _qpoints = await GetQpoints();
-
-                await _qpointBlGridReference.SetRowDataAsync(_qpoints);
+                await LoadFirstPageAsync();
 
                 StateHasChanged();
             }

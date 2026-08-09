@@ -82,6 +82,25 @@
                      GridOptions="@_qpointGridOptions">
             </BlgGrid>
         </div>
+        <div style="margin-top: 10px;">
+            @if (_preview.Points.Any())
+            {
+                <span style="font-size: .8rem;">@_preview.Points.Count rows ready to import</span>
+                @if (_preview.SkippedCount > 0)
+                {
+                    <span style="font-size: .8rem; color: #d9534f;"> · @_preview.SkippedCount rows skipped</span>
+                }
+            }
+            @if (_preview.Errors.Any())
+            {
+                <div style="margin-top: 8px; max-height: 120px; overflow-y: auto; border: 1px solid #e2e2e2; padding: 8px; background: #fff8f8;">
+                    @foreach (var error in _preview.Errors)
+                    {
+                        <div style="font-size: .75rem; color: #d9534f;">@error</div>
+                    }
+                </div>
+            }
+        </div>
     </div>
     <div class="dnet-panel-footer">
         <DnetButton OnClick="CancelOverlay" class="dnet-m-r-10">Close</DnetButton>
@@ -110,6 +129,8 @@
     private BlgGrid<QpointDto> _qpointBlGridReference = default!;
 
     private List<QpointDto> _qpoints { get; set; } = new();
+
+    private ImportPreviewDto _preview { get; set; } = new();
 
     private List<GridColumn<QpointDto>> _qpointGridColumns { get; set; } = default!;
 
@@ -180,11 +201,11 @@
 
     private void CloseOverlay()
     {
-        if (_formInvalid == true && _qpoints.Any()) return;
+        if (_formInvalid || !_qpoints.Any()) return;
 
         var createPointsDto = new CreatePointsDto()
             {
-                pointDtos = _qpoints,
+                pointDtos = _preview.Points,
                 LlmModel = _modelDto.Model,
                 Dimension = _modelDto.Dimension
             };
@@ -247,9 +268,13 @@
 
         try
         {
-            _qpoints = await AdminService.GetImportQPointData(form);
+            _preview = await AdminService.GetImportQPointData(form);
 
-            if (_qpoints.Any()) _formInvalid = false;
+            _qpoints = _preview.Points;
+
+            _formInvalid = !_editContext.Validate();
+
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {

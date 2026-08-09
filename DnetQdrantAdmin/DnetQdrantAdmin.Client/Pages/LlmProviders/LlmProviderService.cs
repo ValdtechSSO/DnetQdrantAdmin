@@ -12,13 +12,6 @@ public class LlmProviderService : ILlmProviderService
         _httpClient = httpClient;
     }
 
-    public async Task<ReadOnlyMemory<float>> GenerateEmbeddings(string text)
-    {
-        var response = await _httpClient.PostAsJsonAsync($"api/LlmProviders/GenerateEmbeddings", text);
-
-        return await response.Content.ReadFromJsonAsync<ReadOnlyMemory<float>>();
-    }
-
     public async Task<List<SearchResultDto>> SimilaritySearch(SimilaritySearchDto similaritySearchDto)
     {
         var response = await _httpClient.PostAsJsonAsync($"api/LlmProviders/SimilaritySearch", similaritySearchDto);

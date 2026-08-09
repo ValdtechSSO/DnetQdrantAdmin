@@ -140,6 +140,19 @@
                             </PropertyDisplay>
                         </div>
                         <div>
+                            <PropertyDisplay Property="Point ID">
+                                @scoredPoint.PointId
+                            </PropertyDisplay>
+                        </div>
+                        @if (!string.IsNullOrEmpty(scoredPoint.Text))
+                        {
+                            <div>
+                                <PropertyDisplay Property="Text">
+                                    @scoredPoint.Text
+                                </PropertyDisplay>
+                            </div>
+                        }
+                        <div>
                             <JsonViewer JsonData="@scoredPoint.PayloadString"></JsonViewer>
                         </div>
                     </div>

@@ -13,7 +13,7 @@ builder.Services.AddScoped(sp =>
 
     return new HttpClient(handler)
     {
-        BaseAddress = new Uri(builder.Configuration["QDRANTADMIN_API_URL"])
+        BaseAddress = new Uri(builder.Configuration["QDRANTADMIN_API_URL"] ?? "https://localhost:7248/")
     };
 });
 
