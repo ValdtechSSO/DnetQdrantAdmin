@@ -14,7 +14,7 @@ public class CreateCollectionDto
 
     public bool OnDiskPayload { get; set; } = false;
 
-    public string? initFromCollection { get; set; }
+    public string? InitFromCollection { get; set; }
 
     public TimeSpan? Timeout { get; set; }
 
@@ -31,4 +31,6 @@ public class CreateCollectionDto
     public ShardingMethod? ShardingMethod { get; set; }
 
     public SparseVectorConfig? SparseVectorConfig { get; set; }
+
+    public StrictModeConfig? StrictModeConfig { get; set; }
 }

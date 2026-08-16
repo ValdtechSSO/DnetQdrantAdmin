@@ -48,22 +48,22 @@ public class QdrantService : IQdrantService
         }
 
         await _client.CreateCollectionAsync(
-               createCollectionDto.Name,
-               createCollectionDto.VectorParams,
-               createCollectionDto.ShardNumber,
-               createCollectionDto.ReplicationFactor,
-               createCollectionDto.WriteConsistencyFactor,
-               createCollectionDto.OnDiskPayload,
-               createCollectionDto.HnswConfigDiff,
-               createCollectionDto.OptimizersConfigDiff,
-               createCollectionDto.WalConfigDiff,
-               createCollectionDto.QuantizationConfig,
-               createCollectionDto.initFromCollection,
-               createCollectionDto.ShardingMethod,
-               createCollectionDto.SparseVectorConfig
-            //    createCollectionDto.Timeout,
-            //    CancellationToken.None
-               );
+            collectionName: createCollectionDto.Name,
+            vectorsConfig: createCollectionDto.VectorParams,
+            shardNumber: createCollectionDto.ShardNumber,
+            replicationFactor: createCollectionDto.ReplicationFactor,
+            writeConsistencyFactor: createCollectionDto.WriteConsistencyFactor,
+            onDiskPayload: createCollectionDto.OnDiskPayload,
+            hnswConfig: createCollectionDto.HnswConfigDiff,
+            optimizersConfig: createCollectionDto.OptimizersConfigDiff,
+            walConfig: createCollectionDto.WalConfigDiff,
+            quantizationConfig: createCollectionDto.QuantizationConfig,
+            initFromCollection: createCollectionDto.InitFromCollection,
+            shardingMethod: createCollectionDto.ShardingMethod,
+            sparseVectorsConfig: createCollectionDto.SparseVectorConfig,
+            strictModeConfig: createCollectionDto.StrictModeConfig,
+            timeout: createCollectionDto.Timeout,
+            cancellationToken: CancellationToken.None);
 
         return true;
     }
@@ -102,9 +102,9 @@ public class QdrantService : IQdrantService
             EfConstruct = result.Config.HnswConfig.EfConstruct,
             FullScanThreshold = result.Config.HnswConfig.FullScanThreshold,
             MaxIndexingThreads = result.Config.HnswConfig.MaxIndexingThreads,
-            OnDisk = result.Config.HnswConfig.OnDisk,
+            OnDisk = result.Config.HnswConfig.Memory != Memory.Pinned,
             IndexingThreshold = result.Config.OptimizerConfig.IndexingThreshold,
-            OnDiskPayload = result.Config.Params.OnDiskPayload,
+            OnDiskPayload = result.Config.Params.Payload?.Memory == Memory.Cold,
             Dimension = dimension,
             Distance = distance,
             WalCapacityMb = result.Config.WalConfig.WalCapacityMb,
@@ -334,7 +334,7 @@ public class QdrantService : IQdrantService
             {
                 CollectionName = scrollDto.CollectionName,
                 QpointId = item.Id.HasNum ? item.Id.Num.ToString() : item.Id.HasUuid ? item.Id.Uuid : string.Empty,
-                Vectors = scrollDto.WithVector ? item.Vectors.Vector.Data.ToArray() : null,
+                Vectors = scrollDto.WithVector ? GetVectorData(item.Vectors) : null,
                 PayloadString = MapFieldToJson(item.Payload),
             };
 
@@ -347,13 +347,41 @@ public class QdrantService : IQdrantService
     public async Task<IReadOnlyList<ScoredPoint>> SearchAsync(SimilaritySearchDto similaritySearchDto, ReadOnlyMemory<float> vector)
     {
         var filter = ParseFilter(similaritySearchDto.FilterString);
+        Query query = similaritySearchDto.SparseIndices is { Length: > 0 } sparseIndices
+            ? (vector.ToArray(), sparseIndices)
+            : vector.ToArray();
 
-        var points = await _client.SearchAsync(similaritySearchDto.CollectionName, vector, filter: filter, searchParams: similaritySearchDto.SearchParams,
-                                               limit: similaritySearchDto.Limit, offset: similaritySearchDto.Offset, payloadSelector: similaritySearchDto.WithPayloadSelector,
-                                               vectorsSelector: similaritySearchDto.WithVectorsSelector, scoreThreshold: similaritySearchDto.ScoreThreshold,
-                                               vectorName: similaritySearchDto.VectorName, timeout: similaritySearchDto.Timeout);
+        var points = await _client.QueryAsync(
+            collectionName: similaritySearchDto.CollectionName,
+            query: query,
+            prefetch: null,
+            usingVector: similaritySearchDto.VectorName,
+            filter: filter,
+            scoreThreshold: similaritySearchDto.ScoreThreshold,
+            searchParams: similaritySearchDto.SearchParams,
+            limit: similaritySearchDto.Limit,
+            offset: similaritySearchDto.Offset,
+            payloadSelector: similaritySearchDto.WithPayloadSelector,
+            vectorsSelector: similaritySearchDto.WithVectorsSelector,
+            readConsistency: similaritySearchDto.ReadConsistency,
+            shardKeySelector: similaritySearchDto.ShardKeySelector,
+            lookupFrom: null,
+            timeout: similaritySearchDto.Timeout,
+            cancellationToken: CancellationToken.None);
 
         return points;
+    }
+
+    private static float[]? GetVectorData(VectorsOutput vectors)
+    {
+        var vector = vectors.VectorsOptionsCase switch
+        {
+            VectorsOutput.VectorsOptionsOneofCase.Vector => vectors.Vector,
+            VectorsOutput.VectorsOptionsOneofCase.Vectors => vectors.Vectors.Vectors.Values.FirstOrDefault(),
+            _ => null
+        };
+
+        return vector?.GetDenseVector()?.Data.ToArray();
     }
 
     private static Filter? ParseFilter(string? filterString)

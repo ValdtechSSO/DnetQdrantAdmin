@@ -40,5 +40,7 @@ public class SimilaritySearchDto
 
     public ShardKeySelector? ShardKeySelector { get; set; }
 
+    public uint[]? SparseIndices { get; set; }
+
     public TimeSpan? Timeout { get; set; }
 }
