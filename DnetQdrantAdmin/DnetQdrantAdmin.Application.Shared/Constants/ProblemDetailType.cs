@@ -1,4 +1,4 @@
-﻿namespace Dnet.QdrantAdmin.Application.Shared.Constants;
+namespace Dnet.QdrantAdmin.Application.Shared.Constants;
 
 public static class ProblemDetailType
 {
@@ -11,6 +11,10 @@ public static class ProblemDetailType
     public const string INVALID_OBJECT_DATA = "https://security.datalnet.com/errors/invalid-object-data";
 
     public const string RESOURCE_NOT_ALLOWED = "https://security.datalnet.com/errors/resource-not-allowed";
+
+    public const string RESOURCE_NOT_FOUND = "https://security.datalnet.com/errors/resource-not-found";
+
+    public const string RESOURCE_ALREADY_EXISTS = "https://security.datalnet.com/errors/resource-already-exists";
 
     public const string INVALID_MODEL = "https://security.datalnet.com/errors/invalid-model";
 

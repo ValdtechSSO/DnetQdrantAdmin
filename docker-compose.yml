@@ -1,0 +1,44 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    restart: always
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  api:
+    build:
+      context: .
+      dockerfile: DnetQdrantAdmin/DnetQdrantAdmin.Api/Dockerfile
+    restart: always
+    container_name: dnetqdrantadmin-api
+    ports:
+      - "8081:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      QdrantConfig__QdrantServerHost: qdrant
+      QdrantConfig__QdrantRestUrl: http://qdrant:6333
+      # Origins allowed to call the API from the browser (the web service below)
+      CorsOrigins__0: http://localhost:8082
+    depends_on:
+      - qdrant
+
+  web:
+    build:
+      context: .
+      dockerfile: DnetQdrantAdmin/DnetQdrantAdmin/Dockerfile
+      args:
+        # URL of the API as seen from the browser on the host machine
+        API_URL: http://localhost:8081/
+    restart: always
+    container_name: dnetqdrantadmin-web
+    ports:
+      - "8082:8080"
+    depends_on:
+      - api
+
+volumes:
+  qdrant_data:

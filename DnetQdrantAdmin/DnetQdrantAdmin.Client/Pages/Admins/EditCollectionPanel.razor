@@ -1,5 +1,201 @@
-﻿<h3>EditCollectionPanel</h3>
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Infrastructure.Enums
+@using Dnet.Blazor.Components.Button
+@using Dnet.Blazor.Components.Checkbox
+@using Dnet.Blazor.Components.FloatingPanel.Infrastructure.Interfaces
+@using Dnet.Blazor.Components.Form
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Enums
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Services
+@using Qdrant.Client.Grpc
+
+@inject IFloatingPanelService FloatingPanelService
+
+<div class="dnet-panel in-floating-panel">
+    <div class="dnet-panel-header">
+        <div class="dsec-panel-content">
+            <span class="dsec-panel-content-title">Edit Collection</span>
+        </div>
+    </div>
+    <div class="dnet-panel-content">
+        <EditForm EditContext="@_editContext" style="display: flex;flex-direction:column">
+            <DnetFormField Label="Name" UseClearButton="false">
+                <ChildContent>
+                    <span style="display:block; padding: 8px 0; font-size: .9rem;">@_name</span>
+                </ChildContent>
+                <HintContent>
+                    The collection name cannot be changed
+                </HintContent>
+            </DnetFormField>
+            <DnetFormField Label="M" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputNumber @bind-Value="_m">
+                    </DnetInputNumber>
+                </ChildContent>
+                <HintContent>
+                    Number of edges per node in the index graph. Larger the value - more accurate the search, more space required
+                </HintContent>
+            </DnetFormField>
+            <DnetFormField Label="ef Construct" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputNumber @bind-Value="_efConstruct">
+                    </DnetInputNumber>
+                </ChildContent>
+                <HintContent>
+                    Number of neighbours to consider during the index building
+                </HintContent>
+            </DnetFormField>
+            <DnetFormField Label="Full Scan Threshold" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputNumber @bind-Value="_fullScanThreshold">
+                    </DnetInputNumber>
+                </ChildContent>
+            </DnetFormField>
+            <DnetFormField Label="Max Indexing Threads" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputNumber @bind-Value="_maxIndexingThreads">
+                    </DnetInputNumber>
+                </ChildContent>
+            </DnetFormField>
+            <DnetFormField Label="Indexing Threshold" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputNumber @bind-Value="_indexingThreshold">
+                    </DnetInputNumber>
+                </ChildContent>
+                <HintContent>
+                    Maximum size (in kilobytes) of vectors allowed for plain index, exceeding this threshold will enable vector indexing. Note: 1kB = 1 vector of size 256.
+                </HintContent>
+            </DnetFormField>
+            <DnetFormField Label="Replication Factor" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputNumber @bind-Value="_replicationFactor">
+                    </DnetInputNumber>
+                </ChildContent>
+            </DnetFormField>
+            <DnetFormField Label="Write Consistency Factor" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputNumber @bind-Value="_writeConsistencyFactor">
+                    </DnetInputNumber>
+                </ChildContent>
+            </DnetFormField>
+            <DnetInputCheckbox @bind-Value="_onDiskPayload" DisplayName="On Disk Payload">
+                On Disk Payload
+            </DnetInputCheckbox>
+            <DataAnnotationsValidator />
+        </EditForm>
+    </div>
+    <div class="dnet-panel-footer">
+        <DnetButton OnClick="CancelOverlay" class="dnet-m-r-10">Close</DnetButton>
+        <DnetButton OnClick="CloseOverlay" InitialFocus="true" class="dnet-m-r-10" disabled="@_formInvalid">Ok</DnetButton>
+    </div>
+</div>
 
 @code {
 
+    [CascadingParameter]
+    private int OverlayReferenceId { get; set; }
+
+    [Parameter]
+    public CollectionInfoDto CollectionInfo { get; set; } = new();
+
+    private EditContext? _editContext { get; set; }
+
+    private ValidationMessageStore? messageStore { get; set; }
+
+    private bool _formInvalid = true;
+
+    private string _name { get; set; } = string.Empty;
+
+    private ulong _m { get; set; }
+
+    private ulong _efConstruct { get; set; }
+
+    private ulong _fullScanThreshold { get; set; }
+
+    private ulong _maxIndexingThreads { get; set; }
+
+    private ulong _indexingThreshold { get; set; }
+
+    private uint _replicationFactor { get; set; }
+
+    private uint _writeConsistencyFactor { get; set; }
+
+    private bool _onDiskPayload { get; set; }
+
+
+    protected override void OnInitialized()
+    {
+        _name = CollectionInfo.Name;
+        _m = CollectionInfo.M;
+        _efConstruct = CollectionInfo.EfConstruct;
+        _fullScanThreshold = CollectionInfo.FullScanThreshold;
+        _maxIndexingThreads = CollectionInfo.MaxIndexingThreads;
+        _indexingThreshold = CollectionInfo.IndexingThreshold;
+        _replicationFactor = CollectionInfo.ReplicationFactor;
+        _writeConsistencyFactor = CollectionInfo.WriteConsistencyFactor;
+        _onDiskPayload = CollectionInfo.OnDiskPayload;
+
+        _editContext = new EditContext(new object());
+
+        messageStore = new(_editContext);
+
+        _editContext.OnFieldChanged += (data, eventArgs) =>
+        {
+            _formInvalid = !_editContext.Validate();
+            StateHasChanged();
+        };
+
+        _editContext.OnValidationRequested += (data, eventArgs) =>
+        {
+            messageStore?.Clear();
+
+            StateHasChanged();
+        };
+    }
+
+    private void CloseOverlay()
+    {
+        var updateCollectionDto = new UpdateCollectionDto()
+            {
+                Name = _name,
+                HnswConfigDiff = new HnswConfigDiff()
+                    {
+                        M = _m,
+                        EfConstruct = _efConstruct,
+                        FullScanThreshold = _fullScanThreshold,
+                        MaxIndexingThreads = _maxIndexingThreads
+                    },
+                OptimizersConfigDiff = new OptimizersConfigDiff()
+                    {
+                        IndexingThreshold = _indexingThreshold
+                    },
+                CollectionParamsDiff = new CollectionParamsDiff()
+                    {
+                        ReplicationFactor = _replicationFactor,
+                        WriteConsistencyFactor = _writeConsistencyFactor,
+                        OnDiskPayload = _onDiskPayload
+                    }
+            };
+
+        var dataResult = new OverlayResult()
+            {
+                CloseReason = CloseReason.Ok,
+                ComponentData = updateCollectionDto,
+                OverlayReferenceId = OverlayReferenceId,
+                CurrentAction = OverlayCurrentAction.Editing.ToString()
+            };
+
+        FloatingPanelService.Close(dataResult);
+    }
+
+    private void CancelOverlay()
+    {
+        var dataResult = new OverlayResult()
+            {
+                CloseReason = CloseReason.Cancel,
+                ComponentData = null,
+                OverlayReferenceId = OverlayReferenceId
+            };
+
+        FloatingPanelService.Close(dataResult);
+    }
 }

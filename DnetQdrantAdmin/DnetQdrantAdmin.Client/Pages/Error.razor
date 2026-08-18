@@ -26,9 +26,9 @@
 
         Console.WriteLine(ex);
 
-        if (ex.GetType() == typeof(CustomReponseException))
+        if (ex.GetType() == typeof(CustomResponseException))
         {
-            var exr = (CustomReponseException)ex;
+            var exr = (CustomResponseException)ex;
 
             switch (exr.ProblemDetails.Status)
             {

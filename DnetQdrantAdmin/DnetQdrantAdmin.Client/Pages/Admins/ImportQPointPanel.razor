@@ -1,4 +1,4 @@
-﻿@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
 @using Dnet.QdrantAdmin.Client.Pages.Admin
 @using Dnet.Blazor.Components.Button
 @using Dnet.Blazor.Components.Checkbox
@@ -18,6 +18,7 @@
 @using Dnet.Blazor.Components.Toast.Infrastructure.Models
 @using Dnet.Blazor.Components.Select
 @using System.Net.Http.Headers;
+@using System.Text.Json
 
 @inject IFloatingPanelService FloatingPanelService
 @inject IToastService ToastService
@@ -31,49 +32,107 @@
         </div>
     </div>
     <div class="dnet-panel-content">
-        <EditForm EditContext="@_editContext" style="width: 300px">
+        <EditForm EditContext="@_editContext">
             <div style="display:flex; align-items: baseline">
                 <label for="file-upload" class="custom-file-upload">
                     Import file
                 </label>
                 <span class="dnet-m-l-10">@_fileName</span>
-                <InputFile OnChange="@ReadExcelFile" id="file-upload" multiple class="dnet-m-b-20 dnet-m-t-10" style="display: none;" />
+                <InputFile OnChange="@ReadFile" id="file-upload" class="dnet-m-b-20 dnet-m-t-10" style="display: none;" />
             </div>
-            <DnetFormField Label="LLM Model" IsRequired="true">
-                <ChildContent>
-                    <DnetSelect TValue="string"
-                                @bind-Value="_modelDto.Model"
-                                Items="_llmModels"
-                                TItem="ModelDto"
-                                DisplayValueConverter="(value) => (value.Model)"
-                                ValueConverter="(value) => (value.Model)"
-                                PlaceHolder=""
-                                OnItemSelected="ModelSelected">
-                    </DnetSelect>
-                </ChildContent>
-                <ErrorContent>
-                    <ValidationMessage For="@(() => _modelDto.Model)" />
-                </ErrorContent>
-            </DnetFormField>
-            <DnetFormField Label="Dimension" IsRequired="true">
-                <ChildContent>
-                    <DnetSelect TValue="int"
-                                @bind-Value="_modelDto.Dimension"
-                                Items="_dimensions"
-                                TItem="int"
-                                DisplayValueConverter="(value) => (value.ToString())"
-                                ValueConverter="(value) => (value)"
-                                PlaceHolder=""
-                                >
-                    </DnetSelect>
-                </ChildContent>
-                <ErrorContent>
-                    <ValidationMessage For="@(() => _modelDto.Dimension)" />
-                </ErrorContent>
-            </DnetFormField>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <DnetFormField Label="File format" UseClearButton="false">
+                    <ChildContent>
+                        <DnetSelect TValue="string"
+                                    @bind-Value="_fileFormat"
+                                    Items="_fileFormats"
+                                    TItem="string"
+                                    DisplayValueConverter="(value) => (value)"
+                                    ValueConverter="(value) => (value)"
+                                    PlaceHolder="Format"
+                                    OnItemSelected="RefreshPreview">
+                        </DnetSelect>
+                    </ChildContent>
+                </DnetFormField>
+                @if (_fileFormat != "Jsonl")
+                {
+                    <div style="display: flex; align-items: center; margin-top: 10px;">
+                        <DnetInputCheckbox @bind-Value="_hasHeader" @bind-Value:after="RefreshPreview" DisplayName="File has header">
+                            File has header
+                        </DnetInputCheckbox>
+                    </div>
+                }
+            </div>
+
+            @if (_preview.Headers.Any())
+            {
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <DnetFormField Label="Text column" UseClearButton="false" IsRequired="true">
+                        <ChildContent>
+                            <DnetSelect TValue="string"
+                                        @bind-Value="_textField"
+                                        Items="_preview.Headers"
+                                        TItem="string"
+                                        DisplayValueConverter="(value) => (value)"
+                                        ValueConverter="(value) => (value)"
+                                        PlaceHolder="Text column"
+                                        OnItemSelected="RefreshPreview">
+                            </DnetSelect>
+                        </ChildContent>
+                        <HintContent>
+                            Column embedded as the point text
+                        </HintContent>
+                    </DnetFormField>
+                </div>
+                <div style="font-size: .75rem; color: #6c757d; margin: 4px 0;">Payload columns (none selected = all except text)</div>
+                <div style="max-height: 130px; overflow-y: auto; border: 1px solid #e2e2e2; border-radius: 4px; padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 6px 14px;">
+                    @foreach (var header in _preview.Headers.Where(h => h != _textField))
+                    {
+                        <DnetInputCheckbox @bind-Value="_payloadFieldStates[header]" @bind-Value:after="(() => PayloadFieldChanged(header))" DisplayName="@header">
+                            @header
+                        </DnetInputCheckbox>
+                    }
+                </div>
+            }
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                <DnetFormField Label="LLM Model" IsRequired="true">
+                    <ChildContent>
+                        <DnetSelect TValue="string"
+                                    @bind-Value="_modelDto.Model"
+                                    Items="_llmModels"
+                                    TItem="ModelDto"
+                                    DisplayValueConverter="DisplayModel"
+                                    ValueConverter="(value) => (value.Model)"
+                                    PlaceHolder=""
+                                    OnItemSelected="ModelSelected">
+                        </DnetSelect>
+                    </ChildContent>
+                    <ErrorContent>
+                        <ValidationMessage For="@(() => _modelDto.Model)" />
+                    </ErrorContent>
+                </DnetFormField>
+                <DnetFormField Label="Dimension" IsRequired="true">
+                    <ChildContent>
+                        <DnetSelect TValue="int"
+                                    @bind-Value="_modelDto.Dimension"
+                                    Items="_dimensions"
+                                    TItem="int"
+                                    DisplayValueConverter="(value) => (value.ToString())"
+                                    ValueConverter="(value) => (value)"
+                                    PlaceHolder=""
+                                    >
+                        </DnetSelect>
+                    </ChildContent>
+                    <ErrorContent>
+                        <ValidationMessage For="@(() => _modelDto.Dimension)" />
+                    </ErrorContent>
+                </DnetFormField>
+            </div>
             <DataAnnotationsValidator />
         </EditForm>
-        <div style="height: calc(100% - 200px)">
+        <div style="height: calc(100% - 300px); margin-top: 10px;">
             <BlgGrid @ref="@_qpointBlGridReference"
                      GridData="@_qpoints"
                      GridColumns="@_qpointGridColumns"
@@ -118,13 +177,7 @@
     [Parameter]
     public List<ModelDto> Models { get; set; } = new();
 
-    private List<File> files { get; set; } = new();
-
-    private List<UploadResult> uploadResults = new();
-
-    private int maxAllowedFiles = 3;
-
-    private bool shouldRender;
+    private const long MaxFileSize = 1024 * 1024 * 15;
 
     private BlgGrid<QpointDto> _qpointBlGridReference = default!;
 
@@ -150,6 +203,20 @@
 
     private string _fileName { get; set; } = string.Empty;
 
+    private byte[] _fileBytes { get; set; } = [];
+
+    private string _fileFormat { get; set; } = "Csv";
+
+    private string _textField { get; set; } = string.Empty;
+
+    private bool _hasHeader { get; set; } = true;
+
+    private List<string> _fileFormats { get; set; } = new() { "Csv", "Tsv", "Jsonl" };
+
+    private Dictionary<string, bool> _payloadFieldStates { get; set; } = new();
+
+    private List<string> _payloadFields { get; set; } = new();
+
 
     protected override void OnInitialized()
     {
@@ -163,13 +230,15 @@
 
         if (_llmModels.Any())
         {
-            var model = _llmModels.Where(p => p.Default).Select(p => p).FirstOrDefault();
+            var model = _llmModels.FirstOrDefault(p => p.Default) ?? _llmModels.First();
 
             _modelDto.Model = model.Model;
 
-            _dimensions = model.Distances;
+            _modelDto.ProviderName = model.ProviderName;
 
-            _modelDto.Dimension = model.Distances.FirstOrDefault();
+            _dimensions = model.Dimensions;
+
+            _modelDto.Dimension = model.Dimensions.FirstOrDefault();
         }
 
         _editContext = new EditContext(_modelDto);
@@ -207,6 +276,7 @@
             {
                 pointDtos = _preview.Points,
                 LlmModel = _modelDto.Model,
+                ProviderName = _modelDto.ProviderName,
                 Dimension = _modelDto.Dimension
             };
 
@@ -232,45 +302,100 @@
         FloatingPanelService.Close(dataResult);
     }
 
-    private async Task ReadExcelFile(InputFileChangeEventArgs e)
+    private async Task ReadFile(InputFileChangeEventArgs e)
     {
-        long maxFileSize = 1024 * 1024 * 15;
-        var form = new MultipartFormDataContent();
+        var file = e.File;
 
-        foreach (var file in e.GetMultipleFiles(maxAllowedFiles))
-        {
-            if (uploadResults.SingleOrDefault(f => f.FileName == file.Name) is null)
-            {
-                try
-                {
-                    var fileContent = new StreamContent(file.OpenReadStream(maxFileSize));
-
-                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
-
-                    form.Add(content: fileContent, name: "\"files\"", fileName: file.Name);
-
-                    _fileName = file.Name;
-                }
-                catch (Exception ex)
-                {
-                    Error?.ProcessError(ex);
-
-                    uploadResults.Add(
-                        new()
-                            {
-                                FileName = file.Name,
-                                ErrorCode = 6,
-                                Uploaded = false
-                            });
-                }
-            }
-        }
+        if (file is null) return;
 
         try
         {
+            if (file.Size > MaxFileSize)
+            {
+                Error?.ProcessError(new InvalidOperationException($"The file exceeds the maximum allowed size of {MaxFileSize / (1024 * 1024)} MB."));
+
+                return;
+            }
+
+            await using var stream = file.OpenReadStream(MaxFileSize);
+
+            using var memory = new MemoryStream();
+
+            await stream.CopyToAsync(memory);
+
+            _fileBytes = memory.ToArray();
+
+            _fileName = file.Name;
+
+            _fileFormat = DetectFormat(file.Name);
+
+            _textField = string.Empty;
+
+            _payloadFieldStates.Clear();
+
+            _payloadFields.Clear();
+
+            await RefreshPreview();
+        }
+        catch (Exception ex)
+        {
+            _formInvalid = true;
+
+            Error?.ProcessError(ex);
+        }
+    }
+
+    private static string DetectFormat(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+
+        return extension switch
+        {
+            ".tsv" or ".tab" => "Tsv",
+            ".jsonl" or ".ndjson" => "Jsonl",
+            _ => "Csv"
+        };
+    }
+
+    private async Task RefreshPreview()
+    {
+        if (_fileBytes.Length == 0) return;
+
+        try
+        {
+            var form = new MultipartFormDataContent();
+
+            var fileContent = new ByteArrayContent(_fileBytes);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            form.Add(fileContent, "files", _fileName);
+
+            var config = new ImportConfigDto
+                {
+                    FileFormat = _fileFormat,
+                    TextField = _textField,
+                    PayloadFields = _payloadFields,
+                    HasHeader = _hasHeader
+                };
+
+            form.Add(new StringContent(JsonSerializer.Serialize(config)), "config");
+
             _preview = await AdminService.GetImportQPointData(form);
 
             _qpoints = _preview.Points;
+
+            if (string.IsNullOrEmpty(_textField) && _preview.Headers.Any())
+            {
+                _textField = _preview.Headers.First();
+            }
+
+            // Reset payload checkbox states for the current headers.
+            foreach (var header in _preview.Headers)
+            {
+                if (!_payloadFieldStates.ContainsKey(header))
+                {
+                    _payloadFieldStates[header] = _payloadFields.Contains(header);
+                }
+            }
 
             _formInvalid = !_editContext.Validate();
 
@@ -284,21 +409,31 @@
         }
     }
 
-    public class UploadResult
+    private async Task PayloadFieldChanged(string header)
     {
-        public bool Uploaded { get; set; }
-        public string? FileName { get; set; }
-        public string? StoredFileName { get; set; }
-        public int ErrorCode { get; set; }
+        if (_payloadFieldStates.TryGetValue(header, out var selected) && selected && !_payloadFields.Contains(header))
+        {
+            _payloadFields.Add(header);
+        }
+        else
+        {
+            _payloadFields.Remove(header);
+        }
+
+        await RefreshPreview();
     }
 
-    private class File
+    private static string DisplayModel(ModelDto value)
     {
-        public string? Name { get; set; }
+        return string.IsNullOrEmpty(value.ProviderName) ? value.Model : $"{value.ProviderName} · {value.Model}";
     }
 
     private void ModelSelected()
     {
-        _dimensions = _llmModels.Where(p => p.Model == _modelDto.Model).Select(p => p.Distances).FirstOrDefault();
+        var model = _llmModels.FirstOrDefault(p => p.Model == _modelDto.Model);
+
+        _dimensions = model?.Dimensions ?? new();
+
+        _modelDto.ProviderName = model?.ProviderName ?? string.Empty;
     }
 }

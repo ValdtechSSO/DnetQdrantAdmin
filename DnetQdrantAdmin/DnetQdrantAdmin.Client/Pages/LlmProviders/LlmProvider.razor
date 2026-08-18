@@ -1,7 +1,6 @@
-﻿@page "/search"
+@page "/search"
 @using Dnet.QdrantAdmin.Application.Shared.Dtos
 @using Dnet.QdrantAdmin.Client.Pages.Admin
-@using Dnet.QdrantAdmin.Client.Pages.TherapyNotes
 @using Dnet.QdrantAdmin.Client.SharedComponents
 @using Dnet.Blazor.Components.Button
 @using Dnet.Blazor.Components.Form
@@ -45,7 +44,7 @@
                                 <ChildContent>
                                     <DnetSelect TValue="string" @bind-Value="@_similaritySearchDto.LlmModel"
                                         Items="_llmModels" TItem="ModelDto"
-                                        DisplayValueConverter="(value) => (value.Model)"
+                                        DisplayValueConverter="DisplayModel"
                                         ValueConverter="(value) => (value.Model)" PlaceHolder=""
                                         OnItemSelected="ModelSelected">
                                     </DnetSelect>
@@ -102,15 +101,18 @@
                                 </DnetFormField>
                             </div>
                             <div class="filter-data">
-                                <DnetFormField Label="Filter" UseClearButton="true">
-                                    <ChildContent>
-                                        <DnetInputTextArea @bind-Value="_similaritySearchDto.FilterString" rows="10"  MaxCharacters="10000">
-                                        </DnetInputTextArea>
-                                    </ChildContent>
-                                    <HintContent>
-                                        Data in json format
-                                    </HintContent>
-                                </DnetFormField>
+                                <FilterBuilder @bind-FilterJson="_similaritySearchDto.FilterString" />
+                                <div style="margin-top: 10px;">
+                                    <DnetFormField Label="Advanced filter (JSON)" UseClearButton="true">
+                                        <ChildContent>
+                                            <DnetInputTextArea @bind-Value="_similaritySearchDto.FilterString" rows="6" MaxCharacters="10000">
+                                            </DnetInputTextArea>
+                                        </ChildContent>
+                                        <HintContent>
+                                            Raw Qdrant filter in JSON format
+                                        </HintContent>
+                                    </DnetFormField>
+                                </div>
                             </div>
                             <div class="search-control">
                                 <DnetButton OnClick="SimilaritySearch" InitialFocus="true" class="dnet-m-r-10"
@@ -223,9 +225,11 @@
 
                 _similaritySearchDto.LlmModel = model.Model;
 
-                _dimensions = model.Distances;
+                _similaritySearchDto.ProviderName = model.ProviderName;
 
-                _similaritySearchDto.Dimension = model.Distances.FirstOrDefault();
+                _dimensions = model.Dimensions;
+
+                _similaritySearchDto.Dimension = model.Dimensions.FirstOrDefault();
             }
 
             _collections = await GetCollections();
@@ -297,11 +301,18 @@
         return result;
     }
 
+    private static string DisplayModel(ModelDto value)
+    {
+        return string.IsNullOrEmpty(value.ProviderName) ? value.Model : $"{value.ProviderName} · {value.Model}";
+    }
+
     private void ModelSelected()
     {
         var model = _llmModels.FirstOrDefault(p => p.Model == _similaritySearchDto.LlmModel);
 
-        _dimensions = model?.Distances ?? new();
+        _dimensions = model?.Dimensions ?? new();
+
+        _similaritySearchDto.ProviderName = model?.ProviderName ?? string.Empty;
 
         if (_collectionDimension.HasValue && _dimensions.Contains(_collectionDimension.Value))
         {
@@ -331,17 +342,19 @@
 
         var model = _llmModels.FirstOrDefault(p => p.Model == _similaritySearchDto.LlmModel);
 
-        if (model is null || !model.Distances.Contains(_collectionDimension.Value))
+        if (model is null || !model.Dimensions.Contains(_collectionDimension.Value))
         {
-            model = _llmModels.FirstOrDefault(p => p.Distances.Contains(_collectionDimension.Value));
+            model = _llmModels.FirstOrDefault(p => p.Dimensions.Contains(_collectionDimension.Value));
 
             if (model is not null)
             {
                 _similaritySearchDto.LlmModel = model.Model;
+
+                _similaritySearchDto.ProviderName = model.ProviderName;
             }
         }
 
-        _dimensions = model?.Distances ?? new();
+        _dimensions = model?.Dimensions ?? new();
 
         if (_dimensions.Contains(_collectionDimension.Value))
         {

@@ -1,0 +1,184 @@
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Infrastructure.HelperClasses
+@using Dnet.QdrantAdmin.Client.Pages.Admin
+@using Dnet.QdrantAdmin.Client.SharedComponents
+@using Dnet.Blazor.Components.Button
+@using Dnet.Blazor.Components.Dialog.Infrastructure.Interfaces
+@using Dnet.Blazor.Components.Dialog.Infrastructure.Models
+@using Dnet.Blazor.Components.Form
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Enums
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Models
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Services
+@using Dnet.Blazor.Components.Toast.Infrastructure.Enums
+@using Dnet.Blazor.Components.Toast.Infrastructure.Interfaces
+
+@inject IAdminService AdminService
+@inject IToastService ToastService
+@inject IDialogService DialogService
+
+@if (string.IsNullOrEmpty(CollectionName))
+{
+    <div style="padding: 20px; color: #6c757d;">Select a collection to manage its aliases</div>
+}
+else
+{
+    <div class="container-contact-basic dnet-m-t-20" style="padding: 0 10px;">
+        <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px;">
+            <DnetFormField Label="Alias name" UseClearButton="false" IsRequired="true">
+                <ChildContent>
+                    <DnetInputText @bind-Value="_newAliasName" PlaceHolder="my-collection-alias" type="text">
+                    </DnetInputText>
+                </ChildContent>
+            </DnetFormField>
+            <DnetButton OnClick="CreateAlias" disabled="@(string.IsNullOrWhiteSpace(_newAliasName) || _busy)">Create alias</DnetButton>
+        </div>
+        <div style="font-size: .8rem; color: #6c757d; margin-bottom: 10px;">
+            The alias points to <b>@CollectionName</b>
+        </div>
+
+        @if (_aliases.Count == 0)
+        {
+            <div style="padding: 20px; color: #6c757d;">No aliases defined yet</div>
+        }
+        else
+        {
+            <table style="width: 100%; font-size: .85rem; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e2e2e2;">Alias</th>
+                        <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e2e2e2;">Collection</th>
+                        <th style="width: 60px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var alias in _aliases)
+                    {
+                        <tr>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1;">@alias.Name</td>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1;">@alias.CollectionName</td>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1; text-align: center;">
+                                <span class="dnet-panel-button-list-item" style="cursor: pointer;" title="Delete alias" @onclick="(() => ShowDeleteDialog(alias))">
+                                    <i class="bi bi-trash"></i>
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+
+    [CascadingParameter]
+    public Error? Error { get; set; }
+
+    [Parameter]
+    public string CollectionName { get; set; } = string.Empty;
+
+    private List<AliasDto> _aliases { get; set; } = new();
+
+    private string _newAliasName { get; set; } = string.Empty;
+
+    private bool _busy;
+
+    private OverlayReference _dialogReference;
+
+    private AliasDto _aliasToDelete { get; set; } = new();
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(CollectionName)) return;
+
+        await LoadAliases();
+    }
+
+    private async Task LoadAliases()
+    {
+        try
+        {
+            _aliases = await AdminService.ListAliases();
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+
+    private async Task CreateAlias()
+    {
+        try
+        {
+            _busy = true;
+
+            await AdminService.CreateAlias(new CreateAliasDto
+                {
+                    AliasName = _newAliasName.Trim(),
+                    CollectionName = CollectionName
+                });
+
+            ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Alias created successfully", "info"));
+
+            _newAliasName = string.Empty;
+
+            await LoadAliases();
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ShowDeleteDialog(AliasDto alias)
+    {
+        _aliasToDelete = alias;
+
+        var dialogConfig = new DialogConfig()
+            {
+                Title = "Delete Alias",
+                HasBackdrop = true,
+                HasTransparentBackdrop = false,
+                Width = "600px",
+                Height = "350px"
+            };
+
+        var parameters = new Dictionary<string, object>
+        {
+            { "Text", "The following alias will be deleted" },
+            { "Items", new List<string> { alias.Name } }
+        };
+
+        _dialogReference = DialogService.Open(typeof(DeleteDialog), parameters, dialogConfig);
+
+        _dialogReference.Close += CloseDeleteDialog;
+    }
+
+    private async void CloseDeleteDialog(OverlayResult overlayDataResult)
+    {
+        try
+        {
+            if (overlayDataResult.CloseReason == CloseReason.Ok)
+            {
+                await AdminService.DeleteAlias(new DeleteAliasDto { AliasName = _aliasToDelete.Name });
+
+                ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Alias deleted successfully", "info"));
+
+                await LoadAliases();
+            }
+
+            _dialogReference.Close -= CloseDeleteDialog;
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+}

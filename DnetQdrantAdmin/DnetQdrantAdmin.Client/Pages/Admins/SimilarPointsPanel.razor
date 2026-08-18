@@ -1,0 +1,113 @@
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Pages.Admin
+@using Dnet.QdrantAdmin.Client.SharedComponents
+@using Dnet.Blazor.Components.Button
+@using Dnet.Blazor.Components.FloatingPanel.Infrastructure.Interfaces
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Enums
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Services
+
+@inject IFloatingPanelService FloatingPanelService
+@inject IAdminService AdminService
+
+<div class="dnet-panel in-floating-panel">
+    <div class="dnet-panel-header">
+        <div class="dsec-panel-content">
+            <span class="dsec-panel-content-title">Similar points</span>
+            <span class="dsec-panel-content-desciption">Points closest to @PointId</span>
+        </div>
+    </div>
+    <div class="dnet-panel-content" style="overflow-y: auto;">
+        @if (_loading)
+        {
+            <div style="padding: 20px; color: #6c757d;">Loading…</div>
+        }
+        else if (!_results.Any())
+        {
+            <div style="padding: 20px; color: #6c757d;">No similar points found</div>
+        }
+        else
+        {
+            @foreach (var result in _results)
+            {
+                <div style="margin: 12px 0; padding: 10px; border: 1px solid #e2e2e2; border-radius: 4px;">
+                    <div style="display: flex; justify-content: space-between; font-size: .8rem;">
+                        <span style="color: #6c757d;">Score: <b>@result.Score.ToString("0.####")</b></span>
+                        <span style="color: #6c757d;">@result.PointId</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(result.Text))
+                    {
+                        <div style="margin-top: 6px; font-size: .85rem;">@result.Text</div>
+                    }
+                    @if (!string.IsNullOrEmpty(result.PayloadString))
+                    {
+                        <div style="margin-top: 6px;">
+                            <JsonViewer JsonData="@result.PayloadString"></JsonViewer>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+    <div class="dnet-panel-footer">
+        <DnetButton OnClick="CloseOverlay" class="dnet-m-r-10">Close</DnetButton>
+    </div>
+</div>
+
+@code {
+
+    [CascadingParameter]
+    public Error? Error { get; set; }
+
+    [CascadingParameter]
+    private int OverlayReferenceId { get; set; }
+
+    [Parameter]
+    public string CollectionName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string PointId { get; set; } = string.Empty;
+
+    [Parameter]
+    public Dnet.QdrantAdmin.Application.Shared.Enums.PointIdType PointIdType { get; set; }
+
+    private List<SearchResultDto> _results { get; set; } = new();
+
+    private bool _loading = true;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _results = await AdminService.SimilarPoints(new SimilarPointsDto
+                {
+                    CollectionName = CollectionName,
+                    QpointId = PointId,
+                    PointIdType = PointIdType,
+                    Limit = 20
+                });
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+        finally
+        {
+            _loading = false;
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void CloseOverlay()
+    {
+        var dataResult = new OverlayResult()
+            {
+                CloseReason = CloseReason.Cancel,
+                ComponentData = null,
+                OverlayReferenceId = OverlayReferenceId
+            };
+
+        FloatingPanelService.Close(dataResult);
+    }
+}

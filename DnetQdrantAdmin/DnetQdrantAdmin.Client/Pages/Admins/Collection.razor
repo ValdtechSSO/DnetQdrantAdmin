@@ -1,4 +1,4 @@
-﻿@page "/collections"
+@page "/collections"
 @using Dnet.QdrantAdmin.Application.Shared.Dtos
 @using Dnet.QdrantAdmin.Application.Shared.Enums
 @using Dnet.QdrantAdmin.Client.Infrastructure.HelperClasses
@@ -70,7 +70,7 @@
             <div class="dnet-panel-header">
                 <div class="dsec-panel-content">
                     <span class="dsec-panel-content-title">Collection details</span>
-                    <span class="dsec-panel-content-desciption">Select a collection to see mor information</span>
+                    <span class="dsec-panel-content-desciption">Select a collection to see more information</span>
                 </div>
             </div>
             <div class="details-container">
@@ -78,8 +78,7 @@
                     <DnetTab Label="Information">
                         <div class="side-info-container">
                             @if (_selectedCollection != null && !string.IsNullOrEmpty(_selectedCollection.Name) && _collectionInfo is not null)
-                            {
-                                <div class="container-contact-basic dnet-m-t-20">
+                            {                                <div class="container-contact-basic dnet-m-t-20">
                                     <div class="type">
                                         <PropertyDisplay Property="Name">@_selectedCollection.Name</PropertyDisplay>
                                     </div>
@@ -132,6 +131,15 @@
                                 </div>
                             }
                         </div>
+                    </DnetTab>
+                    <DnetTab Label="Aliases">
+                        <CollectionAliasesTab CollectionName="@(_selectedCollection?.Name ?? string.Empty)" @key="@($"aliases-{_selectedCollection?.Name}")" />
+                    </DnetTab>
+                    <DnetTab Label="Snapshots">
+                        <CollectionSnapshotsTab CollectionName="@(_selectedCollection?.Name ?? string.Empty)" @key="@($"snapshots-{_selectedCollection?.Name}")" />
+                    </DnetTab>
+                    <DnetTab Label="Payload Indexes">
+                        <CollectionPayloadIndexesTab CollectionName="@(_selectedCollection?.Name ?? string.Empty)" @key="@($"indexes-{_selectedCollection?.Name}")" />
                     </DnetTab>
                 </DnetTabGroup>
             </div>
@@ -214,18 +222,25 @@
 
     public async Task LoadTab()
     {
-        switch (_activeTabId)
+        try
         {
-            case (int)ActiveTab.Información:
+            switch (_activeTabId)
+            {
+                case (int)ActiveTab.Información:
 
-                if (!string.IsNullOrEmpty(_selectedCollection.Name))
-                {
-                    _collectionInfo = await AdminService.GetCollectionInfo(_selectedCollection.Name);
-                }
+                    if (!string.IsNullOrEmpty(_selectedCollection.Name))
+                    {
+                        _collectionInfo = await AdminService.GetCollectionInfo(_selectedCollection.Name);
+                    }
 
-                break;
-            default:
-                break;
+                    break;
+                default:
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
         }
 
         await InvokeAsync(StateHasChanged);
@@ -307,9 +322,12 @@
     {
         try
         {
-            if (_selectedCollection == null || _selectedCollection.CollectionId < 0) return;
+            if (_selectedCollection == null || string.IsNullOrEmpty(_selectedCollection.Name)) return;
 
-            // var employee = await CollectionService.GetCollectionForCollectionEdit(_selectedCollection.CollectionId);
+            if (_collectionInfo is null || _collectionInfo.Name != _selectedCollection.Name)
+            {
+                _collectionInfo = await AdminService.GetCollectionInfo(_selectedCollection.Name);
+            }
 
             var floatingPanelConfig = new FloatingPanelConfig
                 {
@@ -322,24 +340,18 @@
 
             var parameters = new Dictionary<string, object>()
             {
-                // { "ControlWidth", ControlWrapperWidth.Small },
-                // { "CurrentAction", OverlayCurrentAction.Adding.ToString() },
-                // { "Roles", roles },
-                // { "CollectionRoleTypes", employeeRoleTypes },
-                // { "Collection", employee },
-                // { "CollectionCustomFields", lawfirm.CustomFields.Where(x => x.EntityType == (int)CustomFieldEntityType.Collection).ToList() }
+                { "CollectionInfo", _collectionInfo }
             };
 
             _overlayReference = FloatingPanelService.Show(typeof(EditCollectionPanel), parameters, floatingPanelConfig);
 
             _overlayReference.Close += CloseEditFloatingPanel;
         }
-        catch (HttpResponseException)
+        catch (Exception ex)
         {
-            _overlayReference.Close += CloseEditFloatingPanel;
-            ToastService.Show(DnetToastConfig.Get(ToastType.Warning, "El usuario no existe, contactar al administrador", "Advertencia"));
+            if (_overlayReference != null) _overlayReference.Close -= CloseEditFloatingPanel;
+            Error?.ProcessError(ex);
         }
-
     }
 
     private async void CloseEditFloatingPanel(OverlayResult overlayDataResult)
@@ -348,6 +360,22 @@
         {
             if (overlayDataResult.CloseReason == CloseReason.Ok)
             {
+                var collection = (UpdateCollectionDto)overlayDataResult.ComponentData;
+
+                await AdminService.UpdateCollection(collection);
+
+                ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Data saved successfully", "info"));
+
+                _collections = await GetCollections();
+
+                if (_collectionBlGridReference is not null)
+                {
+                    await _collectionBlGridReference.SetRowDataAsync(_collections);
+                }
+
+                await LoadTab();
+
+                await InvokeAsync(StateHasChanged);
             }
 
             if (_overlayReference != null) _overlayReference.Close -= CloseEditFloatingPanel;

@@ -1,6 +1,6 @@
 ﻿using Dnet.QdrantAdmin.Client.Infrastructure.Services;
 using Dnet.QdrantAdmin.Client.Pages.Admin;
-using Dnet.QdrantAdmin.Client.Pages.TherapyNotes;
+using Dnet.QdrantAdmin.Client.Pages.LlmProviders;
 
 namespace Dnet.QdrantAdmin.Client.Infrastructure;
 

@@ -1,5 +1,205 @@
-﻿<h3>EditQpointPanel</h3>
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Infrastructure.Enums
+@using Dnet.Blazor.Components.Button
+@using Dnet.Blazor.Components.FloatingPanel.Infrastructure.Interfaces
+@using Dnet.Blazor.Components.Form
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Enums
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Services
+@using Dnet.Blazor.Components.Select
+@using System.Text.Json
+
+@inject IFloatingPanelService FloatingPanelService
+
+<div class="dnet-panel in-floating-panel">
+    <div class="dnet-panel-header">
+        <div class="dsec-panel-content">
+            <span class="dsec-panel-content-title">Edit Point</span>
+        </div>
+    </div>
+    <div class="dnet-panel-content">
+        <EditForm EditContext="@_editContext">
+            <DnetFormField Label="Point Id" UseClearButton="false">
+                <ChildContent>
+                    <span style="display:block; padding: 8px 0; font-size: .9rem;">@_pointDto.QpointId</span>
+                </ChildContent>
+                <HintContent>
+                    The point id cannot be changed
+                </HintContent>
+            </DnetFormField>
+            <DnetFormField Label="LLM Model" IsRequired="true">
+                <ChildContent>
+                    <DnetSelect TValue="string"
+                                @bind-Value="_pointDto.LlmModel"
+                                Items="_llmModels"
+                                TItem="ModelDto"
+                                DisplayValueConverter="DisplayModel"
+                                ValueConverter="(value) => (value.Model)"
+                                PlaceHolder="">
+                    </DnetSelect>
+                </ChildContent>
+                <ErrorContent>
+                    <ValidationMessage For="@(() => _pointDto.LlmModel)" />
+                </ErrorContent>
+            </DnetFormField>
+            <DnetFormField Label="Dimension" UseClearButton="false">
+                <ChildContent>
+                    <span style="display:block; padding: 8px 0; font-size: .9rem;">@_pointDto.Dimension</span>
+                </ChildContent>
+                <HintContent>
+                    The dimension is defined by the collection and cannot be changed
+                </HintContent>
+            </DnetFormField>
+            <DnetFormField Label="Text" UseClearButton="false" IsRequired="true">
+                <ChildContent>
+                    <DnetInputTextArea @bind-Value="_pointDto.Text" rows="10">
+                    </DnetInputTextArea>
+                </ChildContent>
+                <ErrorContent>
+                    <ValidationMessage For="@(() => _pointDto.Text)" />
+                </ErrorContent>
+                <HintContent>
+                    Editing the text regenerates the point embedding
+                </HintContent>
+            </DnetFormField>
+            <DnetFormField Label="Payload" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputTextArea @bind-Value="_pointDto.PayloadString" rows="15" style="height: 90%">
+                    </DnetInputTextArea>
+                </ChildContent>
+                <HintContent>
+                    Add payload data in json format ex. {"username": "qdrantuser"}
+                </HintContent>
+            </DnetFormField>
+            <DataAnnotationsValidator />
+        </EditForm>
+    </div>
+    <div class="dnet-panel-footer">
+        <DnetButton OnClick="CancelOverlay" class="dnet-m-r-10">Close</DnetButton>
+        <DnetButton OnClick="CloseOverlay" InitialFocus="true" class="dnet-m-r-10" disabled="@_formInvalid">Ok</DnetButton>
+    </div>
+</div>
 
 @code {
 
+    [CascadingParameter]
+    private int OverlayReferenceId { get; set; }
+
+    [Parameter]
+    public QpointDto Point { get; set; } = new();
+
+    [Parameter]
+    public List<ModelDto> Models { get; set; } = new();
+
+    [Parameter]
+    public int CollectionDimension { get; set; }
+
+    private EditContext? _editContext { get; set; }
+
+    private ValidationMessageStore? messageStore { get; set; }
+
+    private bool _formInvalid = true;
+
+    private QpointDto _pointDto { get; set; } = new();
+
+    private List<ModelDto> _llmModels { get; set; } = new();
+
+
+    protected override void OnInitialized()
+    {
+        _pointDto = new QpointDto
+            {
+                QpointId = Point.QpointId,
+                PointId = Point.PointId,
+                PointIdType = Point.PointIdType,
+                HasNum = Point.HasNum,
+                HasUuid = Point.HasUuid,
+                CollectionName = Point.CollectionName,
+                Text = ExtractTextFromPayload(Point.PayloadString),
+                PayloadString = Point.PayloadString,
+                Dimension = CollectionDimension
+            };
+
+        // Only models able to produce the collection dimension can re-embed the point.
+        _llmModels = Models.Where(m => !m.Dimensions.Any() || m.Dimensions.Contains(CollectionDimension)).ToList();
+
+        if (_llmModels.Any())
+        {
+            var model = _llmModels.FirstOrDefault(m => m.Default) ?? _llmModels.First();
+
+            _pointDto.LlmModel = model.Model;
+
+            _pointDto.ProviderName = model.ProviderName;
+        }
+
+        _editContext = new EditContext(_pointDto);
+
+        messageStore = new(_editContext);
+
+        _editContext.OnFieldChanged += (data, eventArgs) =>
+        {
+            _formInvalid = !_editContext.Validate();
+            StateHasChanged();
+        };
+
+        _editContext.OnValidationRequested += (data, eventArgs) =>
+        {
+            messageStore?.Clear();
+
+            StateHasChanged();
+        };
+    }
+
+    private static string DisplayModel(ModelDto value)
+    {
+        return string.IsNullOrEmpty(value.ProviderName) ? value.Model : $"{value.ProviderName} · {value.Model}";
+    }
+
+    private static string ExtractTextFromPayload(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson)) return string.Empty;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+
+            foreach (var key in new[] { "text", "normalized_statement", "statement", "content" })
+            {
+                if (doc.RootElement.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String)
+                {
+                    return value.GetString() ?? string.Empty;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // The payload is not valid JSON: there is no text to extract.
+        }
+
+        return string.Empty;
+    }
+
+    private void CloseOverlay()
+    {
+        var dataResult = new OverlayResult()
+            {
+                CloseReason = CloseReason.Ok,
+                ComponentData = _pointDto,
+                OverlayReferenceId = OverlayReferenceId,
+                CurrentAction = OverlayCurrentAction.Editing.ToString()
+            };
+
+        FloatingPanelService.Close(dataResult);
+    }
+
+    private void CancelOverlay()
+    {
+        var dataResult = new OverlayResult()
+            {
+                CloseReason = CloseReason.Cancel,
+                ComponentData = null,
+                OverlayReferenceId = OverlayReferenceId
+            };
+
+        FloatingPanelService.Close(dataResult);
+    }
 }

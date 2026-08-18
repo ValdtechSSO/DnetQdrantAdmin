@@ -1,0 +1,210 @@
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Infrastructure.HelperClasses
+@using Dnet.QdrantAdmin.Client.Pages.Admin
+@using Dnet.QdrantAdmin.Client.SharedComponents
+@using Dnet.Blazor.Components.Button
+@using Dnet.Blazor.Components.Dialog.Infrastructure.Interfaces
+@using Dnet.Blazor.Components.Dialog.Infrastructure.Models
+@using Dnet.Blazor.Components.Form
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Enums
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Models
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Services
+@using Dnet.Blazor.Components.Select
+@using Dnet.Blazor.Components.Toast.Infrastructure.Enums
+@using Dnet.Blazor.Components.Toast.Infrastructure.Interfaces
+
+@inject IAdminService AdminService
+@inject IToastService ToastService
+@inject IDialogService DialogService
+
+@if (string.IsNullOrEmpty(CollectionName))
+{
+    <div style="padding: 20px; color: #6c757d;">Select a collection to manage its payload indexes</div>
+}
+else
+{
+    <div class="container-contact-basic dnet-m-t-20" style="padding: 0 10px;">
+        <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px;">
+            <DnetFormField Label="Field name" UseClearButton="false" IsRequired="true">
+                <ChildContent>
+                    <DnetInputText @bind-Value="_newFieldName" PlaceHolder="payload field" type="text">
+                    </DnetInputText>
+                </ChildContent>
+            </DnetFormField>
+            <div style="width: 160px;">
+                <DnetFormField Label="Type" UseClearButton="false" IsRequired="true">
+                    <ChildContent>
+                        <DnetSelect TValue="string"
+                                    @bind-Value="_newFieldType"
+                                    Items="_fieldTypes"
+                                    TItem="string"
+                                DisplayValueConverter="(value) => (value)"
+                                ValueConverter="(value) => (value)"
+                                PlaceHolder="Type">
+                    </DnetSelect>
+                </ChildContent>
+            </DnetFormField>
+            </div>
+            <DnetButton OnClick="CreateIndex" disabled="@(string.IsNullOrWhiteSpace(_newFieldName) || string.IsNullOrEmpty(_newFieldType) || _busy)">Create index</DnetButton>
+        </div>
+        <div style="font-size: .8rem; color: #6c757d; margin-bottom: 10px;">
+            Indexes speed up filtering and ordering by payload fields.
+        </div>
+
+        @if (_indexes.Count == 0)
+        {
+            <div style="padding: 20px; color: #6c757d;">
+                No payload indexes found. Note: this Qdrant version may not expose the index list.
+            </div>
+        }
+        else
+        {
+            <table style="width: 100%; font-size: .85rem; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e2e2e2;">Field</th>
+                        <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e2e2e2;">Type</th>
+                        <th style="width: 60px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var index in _indexes)
+                    {
+                        <tr>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1;">@index.FieldName</td>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1;">@index.FieldType</td>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1; text-align: center;">
+                                <span class="dnet-panel-button-list-item" style="cursor: pointer;" title="Delete index" @onclick="(() => ShowDeleteDialog(index))">
+                                    <i class="bi bi-trash"></i>
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+
+    [CascadingParameter]
+    public Error? Error { get; set; }
+
+    [Parameter]
+    public string CollectionName { get; set; } = string.Empty;
+
+    private List<PayloadIndexDto> _indexes { get; set; } = new();
+
+    private PayloadIndexDto _indexToDelete { get; set; } = new();
+
+    private OverlayReference _dialogReference;
+
+    private bool _busy;
+
+    private string _newFieldName { get; set; } = string.Empty;
+
+    private string _newFieldType { get; set; } = "Keyword";
+
+    private List<string> _fieldTypes { get; set; } = new() { "Keyword", "Integer", "Float", "Geo", "Text", "Bool", "Datetime", "Uuid" };
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(CollectionName)) return;
+
+        await LoadIndexes();
+    }
+
+    private async Task LoadIndexes()
+    {
+        try
+        {
+            _indexes = await AdminService.ListPayloadIndexes(new CollectionNameDto { Name = CollectionName });
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+
+    private async Task CreateIndex()
+    {
+        try
+        {
+            _busy = true;
+
+            await AdminService.CreatePayloadIndex(new CreatePayloadIndexDto
+                {
+                    CollectionName = CollectionName,
+                    FieldName = _newFieldName.Trim(),
+                    FieldType = _newFieldType
+                });
+
+            ToastService.Show(DnetToastConfig.Get(ToastType.Success, $"Index created for '{_newFieldName}'", "info"));
+
+            _newFieldName = string.Empty;
+
+            await LoadIndexes();
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ShowDeleteDialog(PayloadIndexDto index)
+    {
+        _indexToDelete = index;
+
+        var dialogConfig = new DialogConfig()
+            {
+                Title = "Delete Payload Index",
+                HasBackdrop = true,
+                HasTransparentBackdrop = false,
+                Width = "600px",
+                Height = "350px"
+            };
+
+        var parameters = new Dictionary<string, object>
+        {
+            { "Text", "The following payload index will be deleted" },
+            { "Items", new List<string> { $"{index.FieldName} ({index.FieldType})" } }
+        };
+
+        _dialogReference = DialogService.Open(typeof(DeleteDialog), parameters, dialogConfig);
+
+        _dialogReference.Close += CloseDeleteDialog;
+    }
+
+    private async void CloseDeleteDialog(OverlayResult overlayDataResult)
+    {
+        try
+        {
+            if (overlayDataResult.CloseReason == CloseReason.Ok)
+            {
+                await AdminService.DeletePayloadIndex(new DeletePayloadIndexDto
+                    {
+                        CollectionName = CollectionName,
+                        FieldName = _indexToDelete.FieldName
+                    });
+
+                ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Payload index deleted successfully", "info"));
+
+                await LoadIndexes();
+            }
+
+            _dialogReference.Close -= CloseDeleteDialog;
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+}

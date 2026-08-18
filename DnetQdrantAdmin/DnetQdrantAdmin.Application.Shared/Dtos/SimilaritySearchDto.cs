@@ -1,4 +1,4 @@
-﻿using Qdrant.Client.Grpc;
+using Qdrant.Client.Grpc;
 using System.ComponentModel.DataAnnotations;
 
 namespace Dnet.QdrantAdmin.Application.Shared.Dtos;
@@ -10,6 +10,9 @@ public class SimilaritySearchDto
 
     [Required]
     public string LlmModel { get; set; } = string.Empty;
+
+    /// <summary>Name of the embedding provider. When empty, the first provider supporting the model is used.</summary>
+    public string? ProviderName { get; set; }
 
     [Required]
     public int Dimension { get; set; }

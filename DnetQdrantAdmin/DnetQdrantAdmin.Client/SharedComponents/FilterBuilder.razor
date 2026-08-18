@@ -1,0 +1,295 @@
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using Dnet.Blazor.Components.Button
+@using Dnet.Blazor.Components.Form
+@using Dnet.Blazor.Components.Select
+
+<div style="border: 1px solid #e2e2e2; border-radius: 4px; padding: 8px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="font-size: .8rem; color: #6c757d;">Filter conditions</span>
+        <DnetButton OnClick="AddRow" class="dnet-m-r-0">+ Condition</DnetButton>
+    </div>
+
+    @if (!_rows.Any())
+    {
+        <div style="font-size: .75rem; color: #9aa0a6; padding: 4px 0;">No filter conditions</div>
+    }
+
+    @for (var i = 0; i < _rows.Count; i++)
+    {
+        var index = i;
+
+        <div style="display: grid; grid-template-columns: 90px 1fr 110px 1fr 30px; gap: 6px; margin-bottom: 6px; align-items: center;">
+            <DnetFormField>
+                <ChildContent>
+                    <DnetSelect TValue="string"
+                                @bind-Value="_rows[index].Group"
+                                Items="_groups"
+                                TItem="string"
+                                DisplayValueConverter="(value) => (value)"
+                                ValueConverter="(value) => (value)"
+                                OnItemSelected="RebuildJson">
+                    </DnetSelect>
+                </ChildContent>
+            </DnetFormField>
+            <DnetFormField>
+                <ChildContent>
+                    <DnetInputText @bind-Value="_rows[index].Field" @bind-Value:after="RebuildJson" PlaceHolder="payload field" type="text">
+                    </DnetInputText>
+                </ChildContent>
+            </DnetFormField>
+            <DnetFormField>
+                <ChildContent>
+                    <DnetSelect TValue="string"
+                                @bind-Value="_rows[index].Operator"
+                                Items="_operators"
+                                TItem="string"
+                                DisplayValueConverter="(value) => (value)"
+                                ValueConverter="(value) => (value)"
+                                OnItemSelected="RebuildJson">
+                    </DnetSelect>
+                </ChildContent>
+            </DnetFormField>
+            @if (_rows[index].Operator is not ("exists" or "not exists"))
+            {
+                <DnetFormField>
+                    <ChildContent>
+                        <DnetInputText @bind-Value="_rows[index].Value" @bind-Value:after="RebuildJson" PlaceHolder="value" type="text">
+                        </DnetInputText>
+                    </ChildContent>
+                </DnetFormField>
+            }
+            else
+            {
+                <span></span>
+            }
+            <span style="cursor: pointer; color: #6c757d; text-align: center;" title="Remove condition" @onclick="(() => RemoveRow(index))">
+                <i class="bi bi-x-lg"></i>
+            </span>
+        </div>
+    }
+</div>
+
+@code {
+
+    [Parameter]
+    public string? FilterJson { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> FilterJsonChanged { get; set; }
+
+    private class Row
+    {
+        public string Group { get; set; } = "must";
+
+        public string Field { get; set; } = string.Empty;
+
+        public string Operator { get; set; } = "match";
+
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private List<Row> _rows { get; set; } = new();
+
+    private static readonly List<string> _groups = new() { "must", "should", "must_not" };
+
+    private static readonly List<string> _operators = new() { "match", "=", "!=", ">", ">=", "<", "<=", "exists", "not exists" };
+
+
+    protected override void OnParametersSet()
+    {
+        if (_initialized) return;
+
+        _initialized = true;
+
+        LoadFromJson(FilterJson);
+    }
+
+    private bool _initialized;
+
+
+    private void AddRow()
+    {
+        _rows.Add(new Row());
+
+        _ = RebuildJson();
+    }
+
+    private void RemoveRow(int index)
+    {
+        _rows.RemoveAt(index);
+
+        _ = RebuildJson();
+    }
+
+    private Task RebuildJson()
+    {
+        var json = BuildJson();
+
+        return FilterJsonChanged.InvokeAsync(json);
+    }
+
+    private string? BuildJson()
+    {
+        var buckets = new Dictionary<string, List<JsonObject>>
+        {
+            ["must"] = new(),
+            ["should"] = new(),
+            ["must_not"] = new()
+        };
+
+        foreach (var row in _rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Field)) continue;
+
+            var condition = BuildCondition(row);
+
+            if (condition is null) continue;
+
+            // "!=" is expressed as a negated match.
+            var group = row.Operator == "!=" ? "must_not" : row.Group;
+
+            buckets[group].Add(condition);
+        }
+
+        var root = new JsonObject();
+
+        foreach (var bucket in buckets)
+        {
+            if (bucket.Value.Count == 0) continue;
+
+            root[bucket.Key] = new JsonArray(bucket.Value.Select(c => (JsonNode)c).ToArray());
+        }
+
+        return root.Count == 0 ? null : root.ToJsonString();
+    }
+
+    private static JsonObject? BuildCondition(Row row)
+    {
+        var field = row.Field.Trim();
+
+        return row.Operator switch
+        {
+            "match" or "=" => MatchCondition(field, row.Value),
+            "!=" => MatchCondition(field, row.Value),
+            ">" => Range(field, gt: row.Value),
+            ">=" => Range(field, gte: row.Value),
+            "<" => Range(field, lt: row.Value),
+            "<=" => Range(field, lte: row.Value),
+            "exists" => new JsonObject { ["key"] = field, ["is_empty"] = false },
+            "not exists" => new JsonObject { ["key"] = field, ["is_empty"] = true },
+            _ => null
+        };
+    }
+
+    private static JsonObject MatchCondition(string field, string value)
+    {
+        var trimmed = value.Trim();
+
+        if (long.TryParse(trimmed, out var longValue))
+        {
+            return new JsonObject { ["key"] = field, ["match"] = new JsonObject { ["integer"] = longValue } };
+        }
+
+        if (double.TryParse(trimmed, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var doubleValue))
+        {
+            // Match does not support floats: equality is expressed as a closed range.
+            return new JsonObject { ["key"] = field, ["range"] = new JsonObject { ["gte"] = doubleValue, ["lte"] = doubleValue } };
+        }
+
+        if (bool.TryParse(trimmed, out var boolValue))
+        {
+            return new JsonObject { ["key"] = field, ["match"] = new JsonObject { ["boolean"] = boolValue } };
+        }
+
+        return new JsonObject { ["key"] = field, ["match"] = new JsonObject { ["keyword"] = value } };
+    }
+
+    private static JsonObject Range(string field, string? gt = null, string? gte = null, string? lt = null, string? lte = null)
+    {
+        var range = new JsonObject();
+
+        if (gt is not null) range["gt"] = ParseScalar(gt);
+        if (gte is not null) range["gte"] = ParseScalar(gte);
+        if (lt is not null) range["lt"] = ParseScalar(lt);
+        if (lte is not null) range["lte"] = ParseScalar(lte);
+
+        return new JsonObject { ["key"] = field, ["range"] = range };
+    }
+
+    private static JsonNode ParseScalar(string value)
+    {
+        var trimmed = value.Trim();
+
+        if (long.TryParse(trimmed, out var longValue)) return JsonValue.Create(longValue);
+        if (double.TryParse(trimmed, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var doubleValue)) return JsonValue.Create(doubleValue);
+        if (bool.TryParse(trimmed, out var boolValue)) return JsonValue.Create(boolValue);
+
+        return JsonValue.Create(value);
+    }
+
+    private void LoadFromJson(string? json)
+    {
+        _rows.Clear();
+
+        if (string.IsNullOrWhiteSpace(json)) return;
+
+        try
+        {
+            var root = JsonNode.Parse(json) as JsonObject;
+
+            if (root is null) return;
+
+            foreach (var group in new[] { "must", "should", "must_not" })
+            {
+                if (root[group] is not JsonArray conditions) continue;
+
+                foreach (var condition in conditions.OfType<JsonObject>())
+                {
+                    var field = condition["key"]?.GetValue<string>() ?? string.Empty;
+
+                    if (string.IsNullOrEmpty(field)) continue;
+
+                    var row = new Row { Group = group, Field = field };
+
+                    if (condition["match"] is JsonObject match)
+                    {
+                        row.Operator = group == "must_not" ? "!=" : "match";
+
+                        if (match["keyword"] is not null) row.Value = match["keyword"]!.GetValue<string>();
+                        else if (match["integer"] is not null) row.Value = match["integer"]!.GetValue<long>().ToString();
+                        else if (match["boolean"] is not null) row.Value = match["boolean"]!.GetValue<bool>().ToString();
+                        else if (match["text"] is not null) row.Value = match["text"]!.GetValue<string>();
+                    }
+                    else if (condition["range"] is JsonObject range)
+                    {
+                        if (range["gt"] is not null) { row.Operator = ">"; row.Value = ScalarToString(range["gt"]); }
+                        else if (range["gte"] is not null) { row.Operator = ">="; row.Value = ScalarToString(range["gte"]); }
+                        else if (range["lt"] is not null) { row.Operator = "<"; row.Value = ScalarToString(range["lt"]); }
+                        else if (range["lte"] is not null) { row.Operator = "<="; row.Value = ScalarToString(range["lte"]); }
+                    }
+                    else if (condition["is_empty"] is not null)
+                    {
+                        row.Operator = condition["is_empty"]?.GetValue<bool>() == true ? "not exists" : "exists";
+                    }
+
+                    _rows.Add(row);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Unrecognized filter JSON: start with an empty builder.
+            _rows.Clear();
+        }
+    }
+
+    private static string ScalarToString(JsonNode? node)
+    {
+        return node switch
+        {
+            JsonValue value => value.TryGetValue<string>(out var s) ? s : value.ToJsonString(),
+            _ => node?.ToJsonString() ?? string.Empty
+        };
+    }
+}

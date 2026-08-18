@@ -1,7 +1,7 @@
-﻿using Dnet.QdrantAdmin.Application.Shared.Constants;
+using Dnet.QdrantAdmin.Application.Shared.Constants;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Dnet.QdrantAdmin.Api.Infrasctructure.Factories;
+namespace Dnet.QdrantAdmin.Api.Infrastructure.Factories;
 
 public class ProblemDetailFactory : IProblemDetailFactory
 {
@@ -72,6 +72,32 @@ public class ProblemDetailFactory : IProblemDetailFactory
             return response;
         }
 
+        if (problemDetailType == ProblemDetailType.RESOURCE_NOT_FOUND)
+        {
+            var response = new ProblemDetails()
+            {
+                Type = problemDetailType,
+                Title = "Resource Not Found",
+                Status = 404,
+                Detail = details,
+            };
+
+            return response;
+        }
+
+        if (problemDetailType == ProblemDetailType.RESOURCE_ALREADY_EXISTS)
+        {
+            var response = new ProblemDetails()
+            {
+                Type = problemDetailType,
+                Title = "Resource Already Exists",
+                Status = 409,
+                Detail = details,
+            };
+
+            return response;
+        }
+
         if (problemDetailType == ProblemDetailType.INVALID_MODEL)
         {
             var response = new ProblemDetails()
@@ -92,6 +118,19 @@ public class ProblemDetailFactory : IProblemDetailFactory
                 Type = problemDetailType,
                 Title = "Invalid Access Token",
                 Status = 401,
+                Detail = details,
+            };
+
+            return response;
+        }
+
+        if (problemDetailType == ProblemDetailType.OPERATION_EXCEPTION)
+        {
+            var response = new ProblemDetails()
+            {
+                Type = problemDetailType,
+                Title = "Operation Exception",
+                Status = 500,
                 Detail = details,
             };
 
@@ -124,6 +163,6 @@ public class ProblemDetailFactory : IProblemDetailFactory
             return response;
         }
 
-        throw new System.Exception("The ProblemDetails for type " + problemDetailType + "is not registered");
+        throw new System.Exception("The ProblemDetails for type " + problemDetailType + " is not registered");
     }
 }

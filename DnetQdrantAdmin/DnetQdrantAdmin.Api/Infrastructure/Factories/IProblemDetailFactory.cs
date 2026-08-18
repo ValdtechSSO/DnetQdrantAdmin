@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 
-namespace Dnet.QdrantAdmin.Api.Infrasctructure.Factories;
+namespace Dnet.QdrantAdmin.Api.Infrastructure.Factories;
 
 public interface IProblemDetailFactory
 {

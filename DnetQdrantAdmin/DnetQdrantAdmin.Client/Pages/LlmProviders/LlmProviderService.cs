@@ -1,7 +1,7 @@
 ﻿using Dnet.QdrantAdmin.Application.Shared.Dtos;
 using System.Net.Http.Json;
 
-namespace Dnet.QdrantAdmin.Client.Pages.TherapyNotes;
+namespace Dnet.QdrantAdmin.Client.Pages.LlmProviders;
 
 public class LlmProviderService : ILlmProviderService
 {

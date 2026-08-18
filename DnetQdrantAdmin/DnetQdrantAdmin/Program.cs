@@ -40,4 +40,6 @@ app.MapRazorComponents<App>()
     .AddInteractiveWebAssemblyRenderMode()
     .AddAdditionalAssemblies(typeof(Dnet.QdrantAdmin.Client._Imports).Assembly);
 
+app.MapGet("/healthz", () => Results.Ok("healthy"));
+
 app.Run();

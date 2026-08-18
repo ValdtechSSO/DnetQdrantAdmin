@@ -1,4 +1,4 @@
-﻿using Qdrant.Client.Grpc;
+using Qdrant.Client.Grpc;
 using Qdrant.Client;
 using Dnet.QdrantAdmin.Application.Shared.Dtos;
 using Google.Protobuf.Collections;
@@ -8,23 +8,24 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text;
 using Microsoft.Extensions.Options;
-using Dnet.QdrantAdmin.Api.Infrasctructure.Models;
+using Dnet.QdrantAdmin.Api.Infrastructure.Exceptions;
+using Dnet.QdrantAdmin.Api.Infrastructure.Models;
 
-namespace Dnet.QdrantAdmin.Api.Infrasctructure.Services;
+namespace Dnet.QdrantAdmin.Api.Infrastructure.Services;
 
 public class QdrantService : IQdrantService
 {
     private readonly QdrantClient _client;
-    private readonly IOpenAiService _openAiService;
+    private readonly IEmbeddingService _embeddingService;
 
-    public QdrantService(IOptions<QdrantConfig> config, IOpenAiService openAiService)
+    public QdrantService(IOptions<QdrantConfig> config, IEmbeddingService embeddingService)
     {
         _client = new QdrantClient(config.Value.QdrantServerHost);
 
-        _openAiService = openAiService;
+        _embeddingService = embeddingService;
     }
 
-    public async Task<bool> CreateCollectionAsync(CreateCollectionDto createCollectionDto)
+    public async Task<bool> CreateCollectionAsync(CreateCollectionDto createCollectionDto, CancellationToken cancellationToken = default)
     {
         createCollectionDto.VectorParams ??= new VectorParams();
         createCollectionDto.VectorParams.Size = createCollectionDto.VectorParams.Size > 0 ? createCollectionDto.VectorParams.Size : 100;
@@ -63,7 +64,56 @@ public class QdrantService : IQdrantService
             sparseVectorsConfig: createCollectionDto.SparseVectorConfig,
             strictModeConfig: createCollectionDto.StrictModeConfig,
             timeout: createCollectionDto.Timeout,
-            cancellationToken: CancellationToken.None);
+            cancellationToken: cancellationToken);
+
+        return true;
+    }
+
+    public async Task<bool> UpdateCollectionAsync(UpdateCollectionDto updateCollectionDto, CancellationToken cancellationToken = default)
+    {
+        updateCollectionDto.HnswConfigDiff ??= new HnswConfigDiff();
+
+        if (updateCollectionDto.HnswConfigDiff.HasM && updateCollectionDto.HnswConfigDiff.M < 1)
+        {
+            updateCollectionDto.HnswConfigDiff.ClearM();
+        }
+
+        if (updateCollectionDto.HnswConfigDiff.HasEfConstruct && updateCollectionDto.HnswConfigDiff.EfConstruct < 1)
+        {
+            updateCollectionDto.HnswConfigDiff.ClearEfConstruct();
+        }
+
+        if (updateCollectionDto.HnswConfigDiff.HasMaxIndexingThreads && updateCollectionDto.HnswConfigDiff.MaxIndexingThreads < 1)
+        {
+            updateCollectionDto.HnswConfigDiff.ClearMaxIndexingThreads();
+        }
+
+        updateCollectionDto.OptimizersConfigDiff ??= new OptimizersConfigDiff();
+
+        if (updateCollectionDto.OptimizersConfigDiff.HasIndexingThreshold && updateCollectionDto.OptimizersConfigDiff.IndexingThreshold < 1)
+        {
+            updateCollectionDto.OptimizersConfigDiff.ClearIndexingThreshold();
+        }
+
+        updateCollectionDto.CollectionParamsDiff ??= new CollectionParamsDiff();
+
+        if (updateCollectionDto.CollectionParamsDiff.HasReplicationFactor && updateCollectionDto.CollectionParamsDiff.ReplicationFactor < 1)
+        {
+            updateCollectionDto.CollectionParamsDiff.ClearReplicationFactor();
+        }
+
+        if (updateCollectionDto.CollectionParamsDiff.HasWriteConsistencyFactor && updateCollectionDto.CollectionParamsDiff.WriteConsistencyFactor < 1)
+        {
+            updateCollectionDto.CollectionParamsDiff.ClearWriteConsistencyFactor();
+        }
+
+        await _client.UpdateCollectionAsync(
+            collectionName: updateCollectionDto.Name,
+            optimizersConfig: updateCollectionDto.OptimizersConfigDiff,
+            collectionParams: updateCollectionDto.CollectionParamsDiff,
+            hnswConfig: updateCollectionDto.HnswConfigDiff,
+            timeout: updateCollectionDto.Timeout,
+            cancellationToken: cancellationToken);
 
         return true;
     }
@@ -76,6 +126,7 @@ public class QdrantService : IQdrantService
 
         ulong dimension = 0;
         var distance = string.Empty;
+        string? vectorName = null;
 
         switch (vectorsConfig.ConfigCase)
         {
@@ -88,11 +139,13 @@ public class QdrantService : IQdrantService
                 var firstVector = vectorsConfig.ParamsMap.Map.FirstOrDefault().Value;
                 dimension = firstVector?.Size ?? 0;
                 distance = firstVector?.Distance.ToString() ?? string.Empty;
+                vectorName = vectorsConfig.ParamsMap.Map.FirstOrDefault().Key;
                 break;
         }
 
         var collectionInfo = new CollectionInfoDto()
         {
+            Name = collectionName,
             Status = result.Status.ToString(),
             VectorsCount = result.HasIndexedVectorsCount ? result.IndexedVectorsCount : result.HasPointsCount ? result.PointsCount : 0,
             SegmentsCount = result.SegmentsCount,
@@ -107,6 +160,9 @@ public class QdrantService : IQdrantService
             OnDiskPayload = result.Config.Params.Payload?.Memory == Memory.Cold,
             Dimension = dimension,
             Distance = distance,
+            VectorName = vectorName,
+            ReplicationFactor = result.Config.Params.ReplicationFactor,
+            WriteConsistencyFactor = result.Config.Params.WriteConsistencyFactor,
             WalCapacityMb = result.Config.WalConfig.WalCapacityMb,
         };
 
@@ -139,22 +195,29 @@ public class QdrantService : IQdrantService
 
     public async Task<UpdateResult> InsertVectorsAsync(string collectionName, QpointDto pointDto, ReadOnlyMemory<float> vector)
     {
-        var point = new PointStruct();
-
-        if (pointDto.HasUuid)
+        var point = new PointStruct
         {
-            Guid newGuid = Guid.NewGuid();
+            Id = await CreatePointIdForInsertAsync(collectionName, pointDto),
+            Vectors = vector.ToArray()
+        };
 
-            point.Id = newGuid;
-            point.Vectors = vector.ToArray();
-        }
-        else
+        if (!string.IsNullOrEmpty(pointDto.PayloadString)) JsonToMapField(pointDto.PayloadString, point.Payload);
+
+        var points = new List<PointStruct>
         {
-            var count = await _client.CountAsync(collectionName);
+            point
+        };
 
-            point.Id = count + 1;
-            point.Vectors = vector.ToArray();
-        }
+        return await _client.UpsertAsync(collectionName, points);
+    }
+
+    public async Task<UpdateResult> UpdatePointAsync(string collectionName, QpointDto pointDto, ReadOnlyMemory<float> vector)
+    {
+        var point = new PointStruct
+        {
+            Id = BuildExplicitPointId(pointDto),
+            Vectors = vector.ToArray()
+        };
 
         if (!string.IsNullOrEmpty(pointDto.PayloadString)) JsonToMapField(pointDto.PayloadString, point.Payload);
 
@@ -170,11 +233,9 @@ public class QdrantService : IQdrantService
     {
         var points = new List<PointStruct>();
 
-        var count = await _client.CountAsync(createPointsDto.CollectionName);
-
         var inputs = createPointsDto.pointDtos.Select(p => p.Text).ToList();
 
-        var embeddings = await _openAiService.GenerateEmbeddingsAsync(inputs, createPointsDto.LlmModel, createPointsDto.Dimension);
+        var embeddings = await _embeddingService.GenerateEmbeddingsAsync(inputs, createPointsDto.ProviderName, createPointsDto.LlmModel, createPointsDto.Dimension);
 
         for (int i = 0; i < createPointsDto.pointDtos.Count; i++)
         {
@@ -182,20 +243,11 @@ public class QdrantService : IQdrantService
 
             var embedding = embeddings[i];
 
-            var point = new PointStruct();
-
-            if (pointDto.HasUuid)
+            var point = new PointStruct
             {
-                Guid newGuid = Guid.NewGuid();
-
-                point.Id = newGuid;
-                point.Vectors = embedding.ToArray();
-            }
-            else
-            {
-                point.Id = count++;
-                point.Vectors = embedding.ToArray();
-            }
+                Id = BuildInsertPointId(pointDto),
+                Vectors = embedding.ToArray()
+            };
 
             if (!string.IsNullOrEmpty(pointDto.PayloadString)) JsonToMapField(pointDto.PayloadString, point.Payload);
 
@@ -203,6 +255,62 @@ public class QdrantService : IQdrantService
         }
 
         return await _client.UpsertAsync(createPointsDto.CollectionName, points);
+    }
+
+    private async Task<PointId> CreatePointIdForInsertAsync(string collectionName, QpointDto pointDto)
+    {
+        // GUID ids can be generated safely on the client side.
+        if (pointDto.HasUuid)
+        {
+            return Guid.NewGuid();
+        }
+
+        // Numeric ids must be provided explicitly: deriving them from the collection
+        // count collides with existing points after deletions and under concurrency.
+        if (!ulong.TryParse(pointDto.QpointId, out ulong numericId))
+        {
+            throw new ArgumentException("A numeric point id is required when GUID ids are disabled. Provide a point id or enable GUID ids.");
+        }
+
+        var existing = await _client.RetrieveAsync(collectionName, numericId, withPayload: false, withVectors: false);
+
+        if (existing.Count > 0)
+        {
+            throw new PointAlreadyExistsException(pointDto.QpointId);
+        }
+
+        return numericId;
+    }
+
+    private static PointId BuildInsertPointId(QpointDto pointDto)
+    {
+        // Bulk imports default to generated GUID ids; explicit ids are respected when provided.
+        if (pointDto.PointId is not null)
+        {
+            return pointDto.PointId;
+        }
+
+        return Guid.NewGuid();
+    }
+
+    private static PointId BuildExplicitPointId(QpointDto pointDto)
+    {
+        if (pointDto.PointId is not null)
+        {
+            return pointDto.PointId;
+        }
+
+        if (pointDto.HasUuid && Guid.TryParse(pointDto.QpointId, out Guid uuid))
+        {
+            return uuid;
+        }
+
+        if (pointDto.HasNum && ulong.TryParse(pointDto.QpointId, out ulong numericId))
+        {
+            return numericId;
+        }
+
+        throw new ArgumentException($"The point id '{pointDto.QpointId}' is not valid for the selected id type");
     }
 
     public MapField<string, Value> JsonToMapField(string json, MapField<string, Value> result)
@@ -271,7 +379,25 @@ public class QdrantService : IQdrantService
 
     public async Task<List<QpointDto>> ScrollAsync(ScrollDto scrollDto)
     {
-        var scrollResponse = await _client.ScrollAsync(scrollDto.CollectionName, null, scrollDto.Limit, scrollDto.Offset);
+        var filter = ParseFilter(scrollDto.FilterString);
+
+        var orderBy = string.IsNullOrWhiteSpace(scrollDto.OrderByPayloadField)
+            ? null
+            : new OrderBy
+            {
+                Key = scrollDto.OrderByPayloadField,
+                Direction = scrollDto.OrderByDescending ? Direction.Desc : Direction.Asc
+            };
+
+        var scrollResponse = await _client.ScrollAsync(
+            collectionName: scrollDto.CollectionName,
+            filter: filter,
+            limit: scrollDto.Limit,
+            offset: scrollDto.Offset,
+            payloadSelector: null,
+            vectorsSelector: null,
+            orderBy: orderBy,
+            cancellationToken: CancellationToken.None);
 
         var collections = new List<QpointDto>();
 
@@ -377,7 +503,7 @@ public class QdrantService : IQdrantService
         var vector = vectors.VectorsOptionsCase switch
         {
             VectorsOutput.VectorsOptionsOneofCase.Vector => vectors.Vector,
-            VectorsOutput.VectorsOptionsOneofCase.Vectors => vectors.Vectors.Vectors.Values.FirstOrDefault(),
+            VectorsOutput.VectorsOptionsOneofCase.Vectors => vectors.Vectors.Vectors.Values.FirstOrDefault(v => v.GetDenseVector() is not null),
             _ => null
         };
 
@@ -464,7 +590,9 @@ public class QdrantService : IQdrantService
         {
             writer.WriteStartObject(); // Start of JSON object
 
-            foreach (var entry in mapField)
+            // Qdrant stores payloads as hash maps whose iteration order is not stable:
+            // sort the keys so the JSON is deterministic and easy to compare between points.
+            foreach (var entry in mapField.OrderBy(e => e.Key, StringComparer.Ordinal))
             {
                 writer.WritePropertyName(entry.Key);
                 WriteValue(writer, entry.Value); // Write each Value object to JSON
@@ -502,7 +630,7 @@ public class QdrantService : IQdrantService
                 break;
             case Value.KindOneofCase.StructValue:
                 writer.WriteStartObject(); // Start of an object
-                foreach (var field in value.StructValue.Fields)
+                foreach (var field in value.StructValue.Fields.OrderBy(f => f.Key, StringComparer.Ordinal))
                 {
                     writer.WritePropertyName(field.Key);
                     WriteValue(writer, field.Value); // Recursively write the object properties
@@ -516,5 +644,85 @@ public class QdrantService : IQdrantService
             default:
                 throw new ArgumentException($"Unsupported Value kind: {value.KindCase}");
         }
+    }
+
+    // Snapshots
+
+    public async Task<List<SnapshotDto>> ListSnapshotsAsync(string collectionName)
+    {
+        var snapshots = await _client.ListSnapshotsAsync(collectionName);
+
+        return snapshots.Select(s => new SnapshotDto
+        {
+            Name = s.Name,
+            Size = s.Size,
+            CreationTime = s.CreationTime.ToDateTime().ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+        }).ToList();
+    }
+
+    public async Task<SnapshotDto> CreateSnapshotAsync(string collectionName)
+    {
+        var snapshot = await _client.CreateSnapshotAsync(collectionName);
+
+        return new SnapshotDto
+        {
+            Name = snapshot.Name,
+            Size = snapshot.Size,
+            CreationTime = snapshot.CreationTime.ToDateTime().ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+        };
+    }
+
+    public async Task DeleteSnapshotAsync(string collectionName, string snapshotName)
+    {
+        await _client.DeleteSnapshotAsync(collectionName, snapshotName);
+    }
+
+    // Aliases
+
+    public async Task<List<AliasDto>> ListAliasesAsync()
+    {
+        var aliases = await _client.ListAliasesAsync();
+
+        return aliases.Select(a => new AliasDto
+        {
+            Name = a.AliasName,
+            CollectionName = a.CollectionName
+        }).ToList();
+    }
+
+    public async Task CreateAliasAsync(CreateAliasDto createAliasDto)
+    {
+        await _client.CreateAliasAsync(createAliasDto.AliasName, createAliasDto.CollectionName);
+    }
+
+    public async Task DeleteAliasAsync(string aliasName)
+    {
+        await _client.DeleteAliasAsync(aliasName);
+    }
+
+    // Payload indexes
+
+    public async Task CreatePayloadIndexAsync(CreatePayloadIndexDto createPayloadIndexDto)
+    {
+        if (!Enum.TryParse<PayloadSchemaType>(createPayloadIndexDto.FieldType, ignoreCase: true, out var schemaType) || schemaType == PayloadSchemaType.UnknownType)
+        {
+            throw new ArgumentException($"'{createPayloadIndexDto.FieldType}' is not a valid payload index type");
+        }
+
+        await _client.CreatePayloadIndexAsync(createPayloadIndexDto.CollectionName, createPayloadIndexDto.FieldName, schemaType, indexParams: null, wait: true);
+    }
+
+    public async Task DeletePayloadIndexAsync(DeletePayloadIndexDto deletePayloadIndexDto)
+    {
+        await _client.DeletePayloadIndexAsync(deletePayloadIndexDto.CollectionName, deletePayloadIndexDto.FieldName, wait: true);
+    }
+
+    // Cluster / shards
+
+    public async Task<int> GetCollectionShardCountAsync(string collectionName)
+    {
+        var clusterInfo = await _client.GetCollectionClusterSetupInfoAsync(collectionName);
+
+        return (int)clusterInfo.ShardCount;
     }
 }

@@ -1,9 +1,11 @@
-﻿using Qdrant.Client.Grpc;
+using Qdrant.Client.Grpc;
 
 namespace Dnet.QdrantAdmin.Application.Shared.Dtos;
 
 public class CollectionInfoDto
 {
+    public string Name { get; set; } = string.Empty;
+
     public string? Status { get; set; }
 
     public ulong VectorsCount { get; set; }
@@ -31,6 +33,13 @@ public class CollectionInfoDto
     public ulong Dimension { get; set; }
 
     public string Distance { get; set; } = string.Empty;
+
+    /// <summary>Name of the (first) dense vector when the collection uses named vectors.</summary>
+    public string? VectorName { get; set; }
+
+    public uint ReplicationFactor { get; set; }
+
+    public uint WriteConsistencyFactor { get; set; }
 
     public ulong WalCapacityMb { get; set; }
 }

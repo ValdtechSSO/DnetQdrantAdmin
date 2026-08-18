@@ -1,6 +1,6 @@
-﻿using Dnet.QdrantAdmin.Api.Infrasctructure.Factories;
-using Dnet.QdrantAdmin.Api.Infrasctructure.Models;
-using Dnet.QdrantAdmin.Api.Infrasctructure.Services;
+using Dnet.QdrantAdmin.Api.Infrastructure.Factories;
+using Dnet.QdrantAdmin.Api.Infrastructure.Models;
+using Dnet.QdrantAdmin.Api.Infrastructure.Services;
 using Dnet.QdrantAdmin.Application.Shared.Constants;
 using Dnet.QdrantAdmin.Application.Shared.Dtos;
 using Google.Protobuf;
@@ -17,7 +17,7 @@ public static class LlmProviderApi
         group.WithTags("LlmProviders");
 
         group.MapPost("/SimilaritySearch", async ([FromBody] SimilaritySearchDto similaritySearchDto,
-                             IOpenAiService openAiService,
+                             IEmbeddingService embeddingService,
                              IQdrantService qdrantService,
                              IProblemDetailFactory problemDetailFactory,
                              IOptions<LlmProviderConfig> config,
@@ -38,14 +38,21 @@ public static class LlmProviderApi
 
             var collectionDimension = checked((int)collectionInfo.Dimension);
 
-            var model = config.Value.Models.FirstOrDefault(model => model.Model == similaritySearchDto.LlmModel);
+            // Collections with named vectors require the vector name in the query.
+            similaritySearchDto.VectorName ??= collectionInfo.VectorName;
+
+            var providerConfig = string.IsNullOrWhiteSpace(similaritySearchDto.ProviderName)
+                ? config.Value.Providers.FirstOrDefault(p => p.Models.Any(m => m.Model == similaritySearchDto.LlmModel))
+                : config.Value.Providers.FirstOrDefault(p => string.Equals(p.Name, similaritySearchDto.ProviderName, StringComparison.OrdinalIgnoreCase));
+
+            var model = providerConfig?.Models.FirstOrDefault(m => m.Model == similaritySearchDto.LlmModel);
 
             if (model is null)
             {
                 return Results.BadRequest(problemDetailFactory.GetProblemDetail(ProblemDetailType.INVALID_MODEL, $"The LLM model '{similaritySearchDto.LlmModel}' is not configured"));
             }
 
-            if (model.Distances.Any() && !model.Distances.Contains(collectionDimension))
+            if (model.Dimensions.Any() && !model.Dimensions.Contains(collectionDimension))
             {
                 return Results.BadRequest(problemDetailFactory.GetProblemDetail(ProblemDetailType.INVALID_MODEL, $"The LLM model '{similaritySearchDto.LlmModel}' can't create {collectionDimension}-dimension embeddings required by collection '{similaritySearchDto.CollectionName}'"));
             }
@@ -54,68 +61,31 @@ public static class LlmProviderApi
 
             var inputs = new List<string>() { similaritySearchDto.Text };
 
-            var embeddings = await openAiService.GenerateEmbeddingsAsync(inputs, similaritySearchDto.LlmModel, similaritySearchDto.Dimension);
+            var embeddings = await embeddingService.GenerateEmbeddingsAsync(inputs, similaritySearchDto.ProviderName, similaritySearchDto.LlmModel, similaritySearchDto.Dimension);
 
-            //if (embeddings.Length != 0)
-            //{
-            //    return Results.BadRequest("");
-            //}
+            if (embeddings is null || embeddings.Count == 0)
+            {
+                return Results.BadRequest(problemDetailFactory.GetProblemDetail(ProblemDetailType.INVALID_REQUEST_PAYLOAD, "Failed to generate embeddings for the provided text"));
+            }
 
             var scoredPoints = new List<ScoredPoint>();
 
             var searchResultDtos = new List<SearchResultDto>();
 
-            if (embeddings is not null)
-            {
-                var embedding = embeddings[0];
+            var embedding = embeddings[0];
 
-                try
-                {
-                    scoredPoints = (await qdrantService.SearchAsync(similaritySearchDto, embedding)).ToList();
-                }
-                catch (InvalidProtocolBufferException ex)
-                {
-                    return Results.BadRequest(problemDetailFactory.GetProblemDetail(ProblemDetailType.INVALID_REQUEST_PAYLOAD, $"Invalid Qdrant filter JSON: {ex.Message}"));
-                }
+            try
+            {
+                scoredPoints = (await qdrantService.SearchAsync(similaritySearchDto, embedding)).ToList();
+            }
+            catch (InvalidProtocolBufferException ex)
+            {
+                return Results.BadRequest(problemDetailFactory.GetProblemDetail(ProblemDetailType.INVALID_REQUEST_PAYLOAD, $"Invalid Qdrant filter JSON: {ex.Message}"));
             }
 
             foreach (var scoredPoint in scoredPoints)
             {
-                var searchResultDto = new SearchResultDto();
-
-                searchResultDto.Score = scoredPoint.Score;
-
-                searchResultDto.PointId = scoredPoint.Id.HasNum ? scoredPoint.Id.Num.ToString() : scoredPoint.Id.HasUuid ? scoredPoint.Id.Uuid : string.Empty;
-
-                searchResultDto.PayloadString = scoredPoint.Payload is not null ? qdrantService.MapFieldToJson(scoredPoint.Payload) : string.Empty;
-
-                if (scoredPoint.Payload != null)
-                {
-                    foreach (KeyValuePair<string, Value> entry in scoredPoint.Payload)
-                    {
-                        string key = entry.Key;
-                        Value value = entry.Value;
-
-                        switch (key)
-                        {
-                            case "text":
-                                searchResultDto.Text = value.StringValue;
-                                break;
-
-                            case "normalized_statement":
-                                if (string.IsNullOrEmpty(searchResultDto.Text))
-                                {
-                                    searchResultDto.Text = value.StringValue;
-                                }
-                                break;
-
-                            default:
-                                break;
-                        }
-                    }
-                }
-
-                searchResultDtos.Add(searchResultDto);
+                searchResultDtos.Add(SearchResultMapper.Map(qdrantService, scoredPoint));
             }
 
             return Results.Ok(searchResultDtos);
@@ -133,16 +103,20 @@ public static class LlmProviderApi
 
              var models = new List<ModelDto>();
 
-             foreach (var item in config.Value.Models)
+             foreach (var provider in config.Value.Providers)
              {
-                 var model = new ModelDto()
+                 foreach (var item in provider.Models)
                  {
-                     Model = item.Model,
-                     Distances = item.Distances,
-                     Default = item.Default
-                 };
+                     var model = new ModelDto()
+                     {
+                         Model = item.Model,
+                         ProviderName = provider.Name,
+                         Dimensions = item.Dimensions,
+                         Default = item.Default
+                     };
 
-                 llmProvider.Models.Add(model);
+                     llmProvider.Models.Add(model);
+                 }
              }
 
              return llmProvider;

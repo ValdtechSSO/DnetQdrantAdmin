@@ -1,5 +1,6 @@
-﻿@page "/"
+@page "/"
 @using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Infrastructure.HelperClasses
 @using Dnet.QdrantAdmin.Client.Pages.Admin
 
 @inject IAdminService AdminService
@@ -15,13 +16,33 @@
             </div>
         </div>
         <div class="dnet-panel-content" style="padding: 20px; display: flex; flex-wrap: wrap; gap: 20px;">
-            <div style="flex: 1; min-width: 200px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+            <div style="flex: 1; min-width: 180px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
                 <div style="font-size: 2rem; font-weight: 600;">@_stats.CollectionCount</div>
                 <div style="font-size: .85rem; color: #6c757d;">Collections</div>
             </div>
-            <div style="flex: 1; min-width: 200px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+            <div style="flex: 1; min-width: 180px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
                 <div style="font-size: 2rem; font-weight: 600;">@_stats.PointsCount</div>
                 <div style="font-size: .85rem; color: #6c757d;">Points</div>
+            </div>
+            <div style="flex: 1; min-width: 180px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+                <div style="font-size: 2rem; font-weight: 600;">@(_stats.StorageBytes.HasValue ? Formatters.FormatBytes((long)_stats.StorageBytes.Value) : "n/a")</div>
+                <div style="font-size: .85rem; color: #6c757d;">Vector storage</div>
+            </div>
+            <div style="flex: 1; min-width: 180px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+                <div style="font-size: 2rem; font-weight: 600;">@_stats.PeerCount</div>
+                <div style="font-size: .85rem; color: #6c757d;">@(_stats.ClusterEnabled ? "Cluster nodes" : "Nodes (standalone)")</div>
+            </div>
+            <div style="flex: 1; min-width: 180px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+                <div style="font-size: 2rem; font-weight: 600;">@_stats.ShardCount</div>
+                <div style="font-size: .85rem; color: #6c757d;">Shards</div>
+            </div>
+            <div style="flex: 1; min-width: 180px; border: 1px solid #e2e2e2; border-radius: 4px; padding: 20px;">
+                <div style="font-size: 1.5rem; font-weight: 600;">
+                    <span style="color: #28a745;">@_stats.StatusGreen</span> ·
+                    <span style="color: #ffc107;">@_stats.StatusYellow</span> ·
+                    <span style="color: #dc3545;">@_stats.StatusRed</span>
+                </div>
+                <div style="font-size: .85rem; color: #6c757d;">Collections green · yellow · red</div>
             </div>
         </div>
         <div class="dnet-panel-content" style="padding: 0 20px 20px 20px;">

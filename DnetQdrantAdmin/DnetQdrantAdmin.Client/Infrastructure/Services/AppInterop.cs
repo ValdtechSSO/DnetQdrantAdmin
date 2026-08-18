@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 
 namespace Dnet.QdrantAdmin.Client.Infrastructure.Services
@@ -16,6 +16,11 @@ namespace Dnet.QdrantAdmin.Client.Infrastructure.Services
         public ValueTask<object> PrettyPrintJsonData(ElementReference jsonContainer, string jsonData)
         {
             return _jsRuntime.InvokeAsync<object>("qdrantapp.prettyPrintJsonData", jsonContainer, jsonData);
+        }
+
+        public ValueTask<object> OpenInNewTab(string url)
+        {
+            return _jsRuntime.InvokeAsync<object>("open", url, "_blank");
         }
     }
 }

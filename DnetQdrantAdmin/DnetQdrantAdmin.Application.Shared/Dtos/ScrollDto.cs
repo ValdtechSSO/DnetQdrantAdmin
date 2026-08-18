@@ -1,4 +1,4 @@
-﻿using Dnet.QdrantAdmin.Application.Shared.Enums;
+using Dnet.QdrantAdmin.Application.Shared.Enums;
 using Qdrant.Client.Grpc;
 
 namespace Dnet.QdrantAdmin.Application.Shared.Dtos;
@@ -19,6 +19,11 @@ public class ScrollDto
     public bool WithVector { get; set; }
 
     public string? OrderByPayloadField { get; set; }
+
+    public bool OrderByDescending { get; set; }
+
+    /// <summary>Qdrant filter in JSON format applied to the scroll operation.</summary>
+    public string? FilterString { get; set; }
 
     public bool HasNum { get; set; }
 

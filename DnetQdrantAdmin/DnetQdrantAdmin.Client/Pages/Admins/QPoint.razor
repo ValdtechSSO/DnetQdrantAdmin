@@ -1,4 +1,4 @@
-﻿@page "/points"
+@page "/points"
 
 @using Dnet.QdrantAdmin.Application.Shared.Dtos
 @using Dnet.QdrantAdmin.Application.Shared.Enums
@@ -6,7 +6,7 @@
 @using Dnet.QdrantAdmin.Client.Infrastructure.Interceptor
 @using Dnet.QdrantAdmin.Client.Infrastructure.Services
 @using Dnet.QdrantAdmin.Client.Pages.Admin
-@using Dnet.QdrantAdmin.Client.Pages.TherapyNotes
+@using Dnet.QdrantAdmin.Client.Pages.LlmProviders
 @using Dnet.QdrantAdmin.Client.SharedComponents
 @using Dnet.Blazor.Components.Button
 @using Dnet.Blazor.Components.Dialog.Infrastructure.Interfaces
@@ -55,6 +55,37 @@
             </DnetFormField>
             <DataAnnotationsValidator />
         </EditForm>
+    </div>
+    <div style="margin: 0 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start;">
+        <div style="width: 220px;">
+            <DnetFormField Label="Order by payload field" UseClearButton="false">
+                <ChildContent>
+                    <DnetInputText @bind-Value="_orderByField" PlaceHolder="field (needs payload index)" type="text">
+                    </DnetInputText>
+                </ChildContent>
+            </DnetFormField>
+        </div>
+        <div style="width: 110px;">
+            <DnetFormField Label="Direction" UseClearButton="false">
+                <ChildContent>
+                    <DnetSelect TValue="string"
+                                @bind-Value="_orderDirection"
+                                Items="_orderDirections"
+                                TItem="string"
+                                DisplayValueConverter="(value) => (value)"
+                                ValueConverter="(value) => (value)"
+                                PlaceHolder="">
+                    </DnetSelect>
+                </ChildContent>
+            </DnetFormField>
+        </div>
+        <div style="display: flex; gap: 6px; padding-top: 10px;">
+            <DnetButton OnClick="ApplyFilters" disabled="@_isLoading">Apply</DnetButton>
+            <DnetButton OnClick="ClearFilters" disabled="@_isLoading">Clear</DnetButton>
+        </div>
+        <div style="flex: 1 1 100%; margin: 4px 0;">
+            <FilterBuilder @bind-FilterJson="_filterJson" />
+        </div>
     </div>
     <div class="main-page-table-container">
         <div class="main-page-left-side">
@@ -108,7 +139,7 @@
             <div class="dnet-panel-header">
                 <div class="dsec-panel-content">
                     <span class="dsec-panel-content-title">Point details</span>
-                    <span class="dsec-panel-content-desciption">Select a qpoint to see mor information</span>
+                    <span class="dsec-panel-content-desciption">Select a qpoint to see more information</span>
                 </div>
             </div>
             <div class="details-container">
@@ -123,6 +154,9 @@
                                     </div>
                                     <div class="type">
                                         <PropertyDisplay Property="PointId">@_qpoint.QpointId</PropertyDisplay>
+                                    </div>
+                                    <div style="margin: 10px 0;">
+                                        <DnetButton OnClick="ShowSimilarPoints" class="dnet-m-r-10">Find similar points</DnetButton>
                                     </div>
                                     <div style="width: calc(100% - 0px); height: 400px">
                                         <PropertyDisplay Property="Payload">
@@ -208,6 +242,16 @@
 
     private ElementReference jsonContainer;
 
+    private string? _orderByField { get; set; }
+
+    private bool _orderByDescending { get; set; }
+
+    private string _orderDirection { get; set; } = "asc";
+
+    private List<string> _orderDirections { get; set; } = new() { "asc", "desc" };
+
+    private string? _filterJson { get; set; }
+
 
     protected override void OnInitialized()
     {
@@ -261,7 +305,10 @@
             {
                 CollectionName = _collectionName,
                 Limit = PageSize,
-                Offset = _scrollOffset
+                Offset = _scrollOffset,
+                OrderByPayloadField = string.IsNullOrWhiteSpace(_orderByField) ? null : _orderByField,
+                OrderByDescending = _orderByDescending,
+                FilterString = string.IsNullOrWhiteSpace(_filterJson) ? null : _filterJson
             };
 
         var result = await AdminService.ScrollPoints(scrollDto);
@@ -347,6 +394,30 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    private async Task ApplyFilters()
+    {
+        try
+        {
+            _orderByDescending = _orderDirection == "desc";
+
+            await LoadFirstPageAsync();
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+
+    private async Task ClearFilters()
+    {
+        _orderByField = null;
+        _orderDirection = "asc";
+        _orderByDescending = false;
+        _filterJson = null;
+
+        await LoadFirstPageAsync();
+    }
+
     public async Task TabClicked(TabClikedEventData tabClikedEventData)
     {
         _activeTabId = tabClikedEventData.TabId;
@@ -356,56 +427,75 @@
 
     public async Task LoadTab()
     {
-        switch (_activeTabId)
+        try
         {
-            case (int)ActiveTab.Información:
+            switch (_activeTabId)
+            {
+                case (int)ActiveTab.Información:
 
-                if (!string.IsNullOrEmpty(_selectedQpoint.CollectionName))
-                {
-                    var scrollDto = new ScrollDto
+                    if (!string.IsNullOrEmpty(_selectedQpoint.CollectionName))
+                    {
+                        var scrollDto = new ScrollDto
+                            {
+                                CollectionName = _selectedQpoint.CollectionName,
+                                PointId = _selectedQpoint.PointId,
+                                WithPayload = true,
+                                WithVector = false,
+                                PointIdType = _selectedQpoint.PointIdType,
+                                QpointId = _selectedQpoint.QpointId
+                            };
+
+                        _qpoint = await AdminService.RetrievePoint(scrollDto);
+
+                        _payload = string.Empty;
+
+                        if (!string.IsNullOrEmpty(_qpoint?.PayloadString))
                         {
-                            CollectionName = _selectedQpoint.CollectionName,
-                            PointId = _selectedQpoint.PointId,
-                            WithPayload = true,
-                            WithVector = false,
-                            PointIdType = _selectedQpoint.PointIdType,
-                            QpointId = _selectedQpoint.QpointId
-                        };
+                            try
+                            {
+                                var jsonObject = JsonSerializer.Deserialize<object>(_qpoint.PayloadString);
 
-                    _qpoint = await AdminService.RetrievePoint(scrollDto);
+                                _payload = JsonSerializer.Serialize(jsonObject, new JsonSerializerOptions { WriteIndented = true });
+                            }
+                            catch (JsonException)
+                            {
+                                _payload = _qpoint.PayloadString;
+                            }
 
-                    var jsonObject = JsonSerializer.Deserialize<object>(_qpoint.PayloadString);
+                            await AppInterop.PrettyPrintJsonData(jsonContainer, _payload);
+                        }
+                    }
 
-                    _payload = JsonSerializer.Serialize(jsonObject, new JsonSerializerOptions { WriteIndented = true });
+                    break;
 
-                    await AppInterop.PrettyPrintJsonData(jsonContainer, _payload);
-                }
+                case (int)ActiveTab.Vector:
 
-                break;
+                    if (!string.IsNullOrEmpty(_selectedQpoint.CollectionName))
+                    {
+                        var scrollDto = new ScrollDto
+                            {
+                                CollectionName = _selectedQpoint.CollectionName,
+                                PointId = _selectedQpoint.PointId,
+                                WithPayload = false,
+                                WithVector = true,
+                                PointIdType = _selectedQpoint.PointIdType,
+                                QpointId = _selectedQpoint.QpointId
+                            };
 
-            case (int)ActiveTab.Vector:
+                        _qpoint = await AdminService.RetrievePoint(scrollDto);
 
-                if (!string.IsNullOrEmpty(_selectedQpoint.CollectionName))
-                {
-                    var scrollDto = new ScrollDto
-                        {
-                            CollectionName = _selectedQpoint.CollectionName,
-                            PointId = _selectedQpoint.PointId,
-                            WithPayload = false,
-                            WithVector = true,
-                            PointIdType = _selectedQpoint.PointIdType,
-                            QpointId = _selectedQpoint.QpointId
-                        };
+                        _vector = FloatArrayAsString(_qpoint.Vectors);
+                    }
 
-                    _qpoint = await AdminService.RetrievePoint(scrollDto);
+                    break;
 
-                    _vector = FloatArrayAsString(_qpoint.Vectors);
-                }
-
-                break;
-
-            default:
-                break;
+                default:
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
         }
 
         await InvokeAsync(StateHasChanged);
@@ -489,7 +579,9 @@
         {
             if (_selectedQpoint == null || string.IsNullOrEmpty(_selectedQpoint.QpointId)) return;
 
-            // var employee = await QpointService.GetQpointForQpointEdit(_selectedQpoint.QpointId);
+            var models = await GetLlmModels();
+
+            var collectionInfo = await AdminService.GetCollectionInfo(_collectionName);
 
             var floatingPanelConfig = new FloatingPanelConfig
                 {
@@ -502,18 +594,20 @@
 
             var parameters = new Dictionary<string, object>()
             {
+                { "Point", _selectedQpoint },
+                { "Models", models },
+                { "CollectionDimension", (int)collectionInfo.Dimension },
             };
 
             _overlayReference = FloatingPanelService.Show(typeof(EditQpointPanel), parameters, floatingPanelConfig);
 
             _overlayReference.Close += CloseEditFloatingPanel;
         }
-        catch (HttpResponseException)
+        catch (Exception ex)
         {
-            _overlayReference.Close += CloseEditFloatingPanel;
-            ToastService.Show(DnetToastConfig.Get(ToastType.Warning, "The user does not exist, contact the administrator", "Warning"));
+            if (_overlayReference != null) _overlayReference.Close -= CloseEditFloatingPanel;
+            Error?.ProcessError(ex);
         }
-
     }
 
     private async void CloseEditFloatingPanel(OverlayResult overlayDataResult)
@@ -522,6 +616,19 @@
         {
             if (overlayDataResult.CloseReason == CloseReason.Ok)
             {
+                var qpoint = (QpointDto)overlayDataResult.ComponentData;
+
+                qpoint.CollectionName = _collectionName;
+
+                await AdminService.UpdatePoint(qpoint);
+
+                ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Data saved successfully", "info"));
+
+                await LoadFirstPageAsync();
+
+                await LoadTab();
+
+                await InvokeAsync(StateHasChanged);
             }
 
             if (_overlayReference != null) _overlayReference.Close -= CloseEditFloatingPanel;
@@ -608,6 +715,36 @@
         if (!vectors.Any()) return string.Empty;
 
         return string.Join(", ", vectors);
+    }
+
+    private void ShowSimilarPoints()
+    {
+        try
+        {
+            if (_selectedQpoint == null || string.IsNullOrEmpty(_selectedQpoint.QpointId)) return;
+
+            var floatingPanelConfig = new FloatingPanelConfig
+                {
+                    HasBackdrop = true,
+                    HasTransparentBackdrop = true,
+                    Postion = FloatingPanelPostion.TopRight,
+                    Width = (int?)FloatingPanelWidth.Medium,
+                    Height = null
+                };
+
+            var parameters = new Dictionary<string, object>()
+            {
+                { "CollectionName", _collectionName },
+                { "PointId", _selectedQpoint.QpointId },
+                { "PointIdType", _selectedQpoint.PointIdType },
+            };
+
+            _overlayReference = FloatingPanelService.Show(typeof(SimilarPointsPanel), parameters, floatingPanelConfig);
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
     }
 
     private async Task Import()

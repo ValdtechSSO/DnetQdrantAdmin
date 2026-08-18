@@ -2,22 +2,22 @@
 
 namespace Dnet.QdrantAdmin.Client.Infrastructure.ExceptionHandling;
 
-public class CustomReponseException : Exception
+public class CustomResponseException : Exception
 {
     public ProblemDetails ProblemDetails { get; set; }
 
 
-    public CustomReponseException()
+    public CustomResponseException()
     {
     }
 
-    public CustomReponseException(string message, ProblemDetails problemDetails)
+    public CustomResponseException(string message, ProblemDetails problemDetails)
         : base(message)
     {
         ProblemDetails = problemDetails;
     }
 
-    public CustomReponseException(string message, Exception inner, ProblemDetails problemDetails)
+    public CustomResponseException(string message, Exception inner, ProblemDetails problemDetails)
         : base(message, inner)
     {
         ProblemDetails = problemDetails;

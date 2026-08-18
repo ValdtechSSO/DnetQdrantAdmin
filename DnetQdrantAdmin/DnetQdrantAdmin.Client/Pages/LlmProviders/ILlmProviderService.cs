@@ -1,6 +1,6 @@
 ﻿using Dnet.QdrantAdmin.Application.Shared.Dtos;
 
-namespace Dnet.QdrantAdmin.Client.Pages.TherapyNotes;
+namespace Dnet.QdrantAdmin.Client.Pages.LlmProviders;
 
 public interface ILlmProviderService
 {

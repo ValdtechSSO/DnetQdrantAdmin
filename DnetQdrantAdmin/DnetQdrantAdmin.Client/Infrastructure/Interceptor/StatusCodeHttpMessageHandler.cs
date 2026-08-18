@@ -52,6 +52,6 @@ public class StatusCodeHttpMessageHandler : DelegatingHandler
         }
 
         _spinnerService.Hide();
-        throw new CustomReponseException("", problemDetails);
+        throw new CustomResponseException("", problemDetails);
     }
 }

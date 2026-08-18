@@ -1,0 +1,231 @@
+@using Dnet.QdrantAdmin.Application.Shared.Dtos
+@using Dnet.QdrantAdmin.Client.Infrastructure.HelperClasses
+@using Dnet.QdrantAdmin.Client.Infrastructure.Services
+@using Dnet.QdrantAdmin.Client.Pages.Admin
+@using Dnet.QdrantAdmin.Client.SharedComponents
+@using Dnet.Blazor.Components.Button
+@using Dnet.Blazor.Components.Dialog.Infrastructure.Interfaces
+@using Dnet.Blazor.Components.Dialog.Infrastructure.Models
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Enums
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Models
+@using Dnet.Blazor.Components.Overlay.Infrastructure.Services
+@using Dnet.Blazor.Components.Toast.Infrastructure.Enums
+@using Dnet.Blazor.Components.Toast.Infrastructure.Interfaces
+@using Microsoft.AspNetCore.Components.Forms
+
+@inject IAdminService AdminService
+@inject IToastService ToastService
+@inject IDialogService DialogService
+@inject AppInterop AppInterop
+
+@if (string.IsNullOrEmpty(CollectionName))
+{
+    <div style="padding: 20px; color: #6c757d;">Select a collection to manage its snapshots</div>
+}
+else
+{
+    <div class="container-contact-basic dnet-m-t-20" style="padding: 0 10px;">
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+            <DnetButton OnClick="CreateSnapshot" disabled="@_busy">
+                <i class="bi bi-camera"></i> Create snapshot
+            </DnetButton>
+            <label class="btn" style="border: 1px solid #0d6efd; color: #0d6efd; margin-bottom: 0; cursor: pointer;">
+                <i class="bi bi-upload"></i> Upload snapshot (restore)
+                <InputFile OnChange="UploadSnapshot" style="display: none;" accept=".snapshot" />
+            </label>
+            @if (_busy)
+            {
+                <span style="font-size: .8rem; color: #6c757d;">Working…</span>
+            }
+        </div>
+        <div style="font-size: .8rem; color: #6c757d; margin-bottom: 10px;">
+            Restoring an uploaded snapshot replaces the current data of <b>@CollectionName</b>.
+            The collection must already exist and be empty or contain compatible data.
+        </div>
+
+        @if (_snapshots.Count == 0)
+        {
+            <div style="padding: 20px; color: #6c757d;">No snapshots for this collection</div>
+        }
+        else
+        {
+            <table style="width: 100%; font-size: .85rem; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e2e2e2;">Name</th>
+                        <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e2e2e2;">Size</th>
+                        <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e2e2e2;">Created</th>
+                        <th style="width: 100px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var snapshot in _snapshots)
+                    {
+                        <tr>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1; word-break: break-all;">@snapshot.Name</td>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1;">@Formatters.FormatBytes(snapshot.Size)</td>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1;">@snapshot.CreationTime</td>
+                            <td style="padding: 6px; border-bottom: 1px solid #f1f1f1; text-align: center;">
+                                <span class="dnet-panel-button-list-item" style="cursor: pointer;" title="Download snapshot" @onclick="(() => DownloadSnapshot(snapshot))">
+                                    <i class="bi bi-download"></i>
+                                </span>
+                                <span class="dnet-panel-button-list-item" style="cursor: pointer;" title="Delete snapshot" @onclick="(() => ShowDeleteDialog(snapshot))">
+                                    <i class="bi bi-trash"></i>
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+
+    [CascadingParameter]
+    public Error? Error { get; set; }
+
+    [Parameter]
+    public string CollectionName { get; set; } = string.Empty;
+
+    private List<SnapshotDto> _snapshots { get; set; } = new();
+
+    private SnapshotDto _snapshotToDelete { get; set; } = new();
+
+    private OverlayReference _dialogReference;
+
+    private bool _busy;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(CollectionName)) return;
+
+        await LoadSnapshots();
+    }
+
+    private async Task LoadSnapshots()
+    {
+        try
+        {
+            _snapshots = await AdminService.ListSnapshots(new CollectionNameDto { Name = CollectionName });
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+
+    private async Task CreateSnapshot()
+    {
+        try
+        {
+            _busy = true;
+
+            var snapshot = await AdminService.CreateSnapshot(new CollectionNameDto { Name = CollectionName });
+
+            ToastService.Show(DnetToastConfig.Get(ToastType.Success, $"Snapshot '{snapshot.Name}' created", "info"));
+
+            await LoadSnapshots();
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void DownloadSnapshot(SnapshotDto snapshot)
+    {
+        var url = AdminService.GetSnapshotDownloadUrl(CollectionName, snapshot.Name);
+
+        _ = AppInterop.OpenInNewTab(url);
+    }
+
+    private async Task UploadSnapshot(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+
+        if (file is null) return;
+
+        try
+        {
+            _busy = true;
+
+            var form = new MultipartFormDataContent();
+
+            var fileContent = new StreamContent(file.OpenReadStream(1024L * 1024 * 1024));
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            form.Add(fileContent, "file", file.Name);
+
+            await AdminService.UploadSnapshot(CollectionName, form);
+
+            ToastService.Show(DnetToastConfig.Get(ToastType.Success, $"Snapshot '{file.Name}' restored into '{CollectionName}'", "info"));
+
+            await LoadSnapshots();
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ShowDeleteDialog(SnapshotDto snapshot)
+    {
+        _snapshotToDelete = snapshot;
+
+        var dialogConfig = new DialogConfig()
+            {
+                Title = "Delete Snapshot",
+                HasBackdrop = true,
+                HasTransparentBackdrop = false,
+                Width = "600px",
+                Height = "350px"
+            };
+
+        var parameters = new Dictionary<string, object>
+        {
+            { "Text", "The following snapshot will be deleted" },
+            { "Items", new List<string> { snapshot.Name } }
+        };
+
+        _dialogReference = DialogService.Open(typeof(DeleteDialog), parameters, dialogConfig);
+
+        _dialogReference.Close += CloseDeleteDialog;
+    }
+
+    private async void CloseDeleteDialog(OverlayResult overlayDataResult)
+    {
+        try
+        {
+            if (overlayDataResult.CloseReason == CloseReason.Ok)
+            {
+                await AdminService.DeleteSnapshot(new DeleteSnapshotDto
+                    {
+                        CollectionName = CollectionName,
+                        SnapshotName = _snapshotToDelete.Name
+                    });
+
+                ToastService.Show(DnetToastConfig.Get(ToastType.Success, "Snapshot deleted successfully", "info"));
+
+                await LoadSnapshots();
+            }
+
+            _dialogReference.Close -= CloseDeleteDialog;
+        }
+        catch (Exception ex)
+        {
+            Error?.ProcessError(ex);
+        }
+    }
+}

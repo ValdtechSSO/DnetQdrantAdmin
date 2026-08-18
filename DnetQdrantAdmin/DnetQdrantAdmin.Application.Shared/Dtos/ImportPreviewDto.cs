@@ -7,4 +7,7 @@ public class ImportPreviewDto
     public int SkippedCount { get; set; }
 
     public List<string> Errors { get; set; } = new();
+
+    /// <summary>Columns detected in the source file (headers for CSV/TSV, property names for JSONL).</summary>
+    public List<string> Headers { get; set; } = new();
 }

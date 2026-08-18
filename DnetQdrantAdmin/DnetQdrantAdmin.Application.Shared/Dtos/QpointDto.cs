@@ -1,4 +1,4 @@
-﻿using Dnet.QdrantAdmin.Application.Shared.Enums;
+using Dnet.QdrantAdmin.Application.Shared.Enums;
 using Qdrant.Client.Grpc;
 using System.ComponentModel.DataAnnotations;
 
@@ -10,6 +10,9 @@ public class QpointDto
 
     [Required]
     public string LlmModel { get; set; } = string.Empty;
+
+    /// <summary>Name of the embedding provider. When empty, the first provider supporting the model is used.</summary>
+    public string? ProviderName { get; set; }
 
     [Required]
     public int Dimension { get; set; }
